@@ -14,49 +14,36 @@ export function RundeScreen({ sessionHook }) {
 
   const [sheet, setSheet] = useState(null)
   const { toast, show } = useToast()
-  const { captureAndSave } = useGPS()
+  const { captureAndSave, getPosition } = useGPS()
 
-  const handleNichtDa = () => {
+  const tap = (outcome, extra = {}) => {
     incrementDoors()
-    if (session) captureAndSave(session.id, 'nicht_da')
-    show('📍 Standort gespeichert')
+    if (outcome === 'gesprach') incrementConvs()
+    if (session) captureAndSave(session.id, outcome, extra.contactId ?? null)
   }
 
-  const handleKeinInt = () => {
-    incrementDoors()
-    if (session) captureAndSave(session.id, 'kein_int')
-    show('Notiert')
-  }
-
-  const handleGesprach = () => {
-    incrementDoors()
-    incrementConvs()
-    if (session) captureAndSave(session.id, 'gesprach')
-    show('Gespräch notiert')
-  }
+  const handleNichtDa  = () => { tap('nicht_da'); show('📍 Standort gespeichert') }
+  const handleKeinInt  = () => { tap('kein_int');  show('Notiert') }
+  const handleGesprach = () => { tap('gesprach');  show('Gespräch notiert') }
 
   const handleSaveContact = async (data) => {
     const isTermin = sheet === 'termin'
     setSheet(null)
     try {
-      await supabase.from('contacts').insert({
+      const { data: contact } = await supabase.from('contacts').insert({
         ...data,
         source: 'tür',
         session_id: session?.id ?? null,
-      })
+      }).select().single()
+
       incrementDoors()
       incrementContacts()
       if (isTermin) incrementAppts()
-      if (session) captureAndSave(session.id, isTermin ? 'termin' : 'kontakt')
+      if (session) captureAndSave(session.id, isTermin ? 'termin' : 'kontakt', contact?.id ?? null)
       show(isTermin ? '✅ Termin gespeichert' : '✅ Kontakt gespeichert')
-    } catch (e) {
+    } catch {
       show('Fehler beim Speichern')
     }
-  }
-
-  const handleEnd = async () => {
-    await endSession()
-    show('Runde beendet')
   }
 
   if (!isActive) {
@@ -87,36 +74,15 @@ export function RundeScreen({ sessionHook }) {
   const appts    = session._appts    ?? 0
 
   const outcomes = [
-    {
-      label: 'Nicht da', sub: 'GPS auto ✓',
-      bg: '#E5E7EB', text: '#374151',
-      icon: '🚪', action: handleNichtDa,
-    },
-    {
-      label: 'Kein Interesse', sub: 'Direkt notieren',
-      bg: '#FEE2E2', text: '#991B1B',
-      icon: '✖', action: handleKeinInt,
-    },
-    {
-      label: 'Gespräch geführt', sub: 'Zählt als Kontakt',
-      bg: '#DBEAFE', text: '#1E40AF',
-      icon: '💬', action: handleGesprach,
-    },
-    {
-      label: 'Kontakt notiert', sub: 'Formular öffnen',
-      bg: '#FEF3C7', text: '#92400E',
-      icon: '📋', action: () => setSheet('kontakt'),
-    },
-    {
-      label: 'Termin gesetzt', sub: 'Mit Datum & Zeit',
-      bg: '#D1FAE5', text: '#065F46',
-      icon: '📅', action: () => setSheet('termin'),
-    },
+    { label: 'Nicht da',        sub: 'GPS auto ✓',       bg: '#E5E7EB', text: '#374151', icon: '🚪', action: handleNichtDa },
+    { label: 'Kein Interesse',  sub: 'Direkt notieren',  bg: '#FEE2E2', text: '#991B1B', icon: '✖',  action: handleKeinInt },
+    { label: 'Gespräch geführt',sub: 'Zählt als Gespräch',bg: '#DBEAFE',text: '#1E40AF', icon: '💬', action: handleGesprach },
+    { label: 'Kontakt notiert', sub: 'Formular öffnen',  bg: '#FEF3C7', text: '#92400E', icon: '📋', action: () => setSheet('kontakt') },
+    { label: 'Termin gesetzt',  sub: 'Mit Datum & Zeit', bg: '#D1FAE5', text: '#065F46', icon: '📅', action: () => setSheet('termin') },
   ]
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-900 pb-24">
-      {/* Header */}
       <div className="flex items-center justify-between px-5 pt-5 pb-4">
         <div className="flex items-center gap-2">
           <span className="pulse-dot w-2.5 h-2.5 rounded-full bg-red-500 inline-block" />
@@ -125,18 +91,16 @@ export function RundeScreen({ sessionHook }) {
         <span className="text-white font-mono text-sm bg-gray-800 px-3 py-1 rounded-full">{formatElapsed()}</span>
       </div>
 
-      {/* Door counter */}
       <div className="text-center py-6">
         <p className="text-8xl font-black text-white leading-none">{doors}</p>
         <p className="text-gray-400 text-xs font-semibold uppercase tracking-widest mt-1">Türen</p>
       </div>
 
-      {/* Mini stats */}
       <div className="grid grid-cols-3 mx-4 bg-gray-800 rounded-2xl overflow-hidden mb-2">
         {[
           { label: 'Gespräche', value: convs },
-          { label: 'Kontakte', value: contacts },
-          { label: 'Termine', value: appts },
+          { label: 'Kontakte',  value: contacts },
+          { label: 'Termine',   value: appts },
         ].map((s, i) => (
           <div key={s.label} className={`flex flex-col items-center py-3 ${i < 2 ? 'border-r border-gray-700' : ''}`}>
             <span className="text-2xl font-extrabold text-white">{s.value}</span>
@@ -145,10 +109,8 @@ export function RundeScreen({ sessionHook }) {
         ))}
       </div>
 
-      {/* GPS hint */}
       <p className="text-center text-gray-500 text-xs py-2">📍 Standort läuft im Hintergrund</p>
 
-      {/* Outcome buttons */}
       <div className="flex flex-col gap-2 px-4 mt-2">
         {outcomes.map(o => (
           <button
@@ -167,10 +129,9 @@ export function RundeScreen({ sessionHook }) {
         ))}
       </div>
 
-      {/* End session */}
       <button
         className="btn-press mx-4 mt-5 py-3 text-gray-400 text-sm font-medium text-center"
-        onClick={handleEnd}
+        onClick={endSession}
       >
         Runde beenden
       </button>
@@ -180,6 +141,7 @@ export function RundeScreen({ sessionHook }) {
           mode={sheet}
           onSave={handleSaveContact}
           onClose={() => setSheet(null)}
+          getPosition={getPosition}
         />
       )}
       <Toast toast={toast} />

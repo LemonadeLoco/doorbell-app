@@ -3,58 +3,40 @@ import { supabase } from '../lib/supabase'
 
 function rangeStart(range) {
   const now = new Date()
-  if (range === 'today') {
-    const d = new Date(now); d.setHours(0,0,0,0); return d.toISOString()
-  }
-  if (range === 'week') {
-    const d = new Date(now); d.setDate(d.getDate() - d.getDay()); d.setHours(0,0,0,0); return d.toISOString()
-  }
-  if (range === 'month') {
-    const d = new Date(now); d.setDate(1); d.setHours(0,0,0,0); return d.toISOString()
-  }
+  if (range === 'today') { const d = new Date(now); d.setHours(0,0,0,0); return d.toISOString() }
+  if (range === 'week')  { const d = new Date(now); d.setDate(d.getDate() - d.getDay()); d.setHours(0,0,0,0); return d.toISOString() }
+  if (range === 'month') { const d = new Date(now); d.setDate(1); d.setHours(0,0,0,0); return d.toISOString() }
   return null
 }
 
-export function useStats(range = 'gesamt') {
+export function useStats(range = 'gesamt', userSettings = null) {
   const [stats, setStats] = useState(null)
-  const [settings, setSettings] = useState({ revenue_target: 700000, revenue_current: 375000 })
 
-  useEffect(() => {
-    loadSettings()
-    loadStats()
-  }, [range])
+  useEffect(() => { load() }, [range, userSettings?.revenue_base])
 
-  const loadSettings = async () => {
-    const { data } = await supabase.from('settings').select('*')
-    if (data) {
-      const map = {}
-      data.forEach(r => { map[r.key] = parseFloat(r.value) })
-      setSettings(s => ({ ...s, ...map }))
-    }
-  }
-
-  const loadStats = async () => {
+  const load = async () => {
     const start = rangeStart(range)
+    let tapsQ     = supabase.from('door_taps').select('outcome')
+    let contactsQ = supabase.from('contacts').select('status, sale_amount, added_at')
+    if (start) { tapsQ = tapsQ.gte('tapped_at', start); contactsQ = contactsQ.gte('added_at', start) }
 
-    let tapsQ = supabase.from('door_taps').select('outcome', { count: 'exact' })
-    let contactsQ = supabase.from('contacts').select('status, sale_amount, added_at', { count: 'exact' })
-    if (start) {
-      tapsQ = tapsQ.gte('tapped_at', start)
-      contactsQ = contactsQ.gte('added_at', start)
-    }
+    // Revenue always uses all-time sales + base
+    const salesQ = supabase.from('contacts').select('sale_amount').eq('status', 'verkauft')
 
-    const [{ data: taps }, { data: cts }] = await Promise.all([tapsQ, contactsQ])
+    const [{ data: taps }, { data: cts }, { data: sales }] = await Promise.all([tapsQ, contactsQ, salesQ])
 
-    const doors = (taps ?? []).length
-    const convs = (taps ?? []).filter(t => ['gesprach','kontakt','termin'].includes(t.outcome)).length
-    const kontakte = (cts ?? []).filter(c => ['kontakt','termin','verkauft','anrufen'].includes(c.status)).length
-    const termine  = (cts ?? []).filter(c => ['termin','verkauft'].includes(c.status)).length
-    const verkauft = (cts ?? []).filter(c => c.status === 'verkauft').length
-    const revenue  = (cts ?? []).filter(c => c.status === 'verkauft' && c.sale_amount)
-                                .reduce((s, c) => s + parseFloat(c.sale_amount), 0)
+    const doors    = (taps ?? []).length
+    const convs    = (taps ?? []).filter(t => ['gesprach','kontakt','termin'].includes(t.outcome)).length
+    const kontakte = (cts  ?? []).filter(c => ['anrufen','kontakt','termin','verkauft'].includes(c.status)).length
+    const termine  = (cts  ?? []).filter(c => ['termin','verkauft'].includes(c.status)).length
+    const verkauft = (cts  ?? []).filter(c => c.status === 'verkauft').length
 
-    setStats({ doors, convs, kontakte, termine, verkauft, revenue })
+    const salesRevenue = (sales ?? []).reduce((s, c) => s + (parseFloat(c.sale_amount) || 0), 0)
+    const base = userSettings?.revenue_base ?? 0
+    const revenue = base + salesRevenue
+
+    setStats({ doors, convs, kontakte, termine, verkauft, revenue, salesRevenue })
   }
 
-  return { stats, settings, reload: loadStats }
+  return { stats, reload: load }
 }

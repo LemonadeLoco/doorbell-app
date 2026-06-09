@@ -1,114 +1,125 @@
 import { useState, useMemo } from 'react'
 import { useContacts } from '../hooks/useContacts'
 import { StatusBadge, SourceBadge } from '../components/StatusBadge'
-import { PRODUCTS, STATUSES } from '../lib/constants'
-import { supabase } from '../lib/supabase'
+import { PRODUCTS } from '../lib/constants'
 
-const FILTERS = ['Alle', 'anrufen', 'termin', 'kontakt', 'verkauft', 'archiv']
-const FILTER_LABELS = { Alle: 'Alle', anrufen: 'Anrufen', termin: 'Termine', kontakt: 'Kontakte', verkauft: 'Verkauft', archiv: 'Archiv' }
+const FILTERS = [
+  { id: 'Alle',         label: 'Alle' },
+  { id: 'anrufen',      label: 'Anrufen' },
+  { id: 'termin',       label: 'Termine' },
+  { id: 'kontakt',      label: 'Kontakte' },
+  { id: 'verkauft',     label: 'Verkauft' },
+  { id: 'bestandskunden', label: 'Bestandskunden' },
+  { id: 'archiv',       label: 'Archiv' },
+]
 
-export function PipelineScreen({ onContactSelect }) {
-  const [filter, setFilter] = useState('Alle')
-  const [search, setSearch] = useState('')
+export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
+  const [filter, setFilter]   = useState('Alle')
+  const [search, setSearch]   = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const { contacts, loading, addContact } = useContacts()
 
   const filtered = useMemo(() => {
     return contacts.filter(c => {
-      const matchFilter = filter === 'Alle' || c.status === filter
+      let matchFilter = true
+      if (filter === 'bestandskunden') matchFilter = c.source === 'anruf'
+      else if (filter !== 'Alle')      matchFilter = c.status === filter
+
       const q = search.toLowerCase()
-      const matchSearch = !q || c.name?.toLowerCase().includes(q) || c.phone?.includes(q) || c.product?.toLowerCase().includes(q)
+      const matchSearch = !q ||
+        c.name?.toLowerCase().includes(q) ||
+        c.phone?.includes(q) ||
+        c.product?.toLowerCase().includes(q) ||
+        c.address?.toLowerCase().includes(q)
+
       return matchFilter && matchSearch
     })
   }, [contacts, filter, search])
 
-  const initials = (name) => name?.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?'
+  const sorted = useMemo(() => {
+    if (filter !== 'bestandskunden') return filtered
+    const order = { anrufen: 0, kontakt: 1, termin: 2, verkauft: 3, kein_int: 4, archiv: 5 }
+    return [...filtered].sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9))
+  }, [filtered, filter])
 
+  const initials = (name) => name?.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?'
   const avatarColor = (name) => {
     const colors = ['#F59E0B','#10B981','#3B82F6','#8B5CF6','#EC4899','#EF4444']
-    const idx = (name?.charCodeAt(0) ?? 0) % colors.length
-    return colors[idx]
+    return colors[(name?.charCodeAt(0) ?? 0) % colors.length]
   }
+
+  const isBestandskunden = filter === 'bestandskunden'
 
   return (
     <div className="flex flex-col min-h-screen pb-28">
-      {/* Header */}
       <div className="bg-white px-4 pt-5 pb-3 shadow-sm">
-        <h1 className="text-xl font-extrabold text-gray-900 mb-3">Pipeline</h1>
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-xl font-extrabold text-gray-900">Pipeline</h1>
+          {isBestandskunden && (
+            <button
+              onClick={onAddBestandskunde}
+              className="btn-press px-3 py-1.5 bg-purple-100 text-purple-700 text-xs font-bold rounded-xl"
+            >
+              + Bestandskunden
+            </button>
+          )}
+        </div>
         <input
           type="search"
-          className="w-full bg-gray-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none"
+          className="w-full bg-gray-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none mb-0"
           placeholder="Suchen..."
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
       </div>
 
-      {/* Filter chips */}
-      <div className="flex gap-2 px-4 py-3 overflow-x-auto scrollbar-hide bg-white border-b border-gray-100">
+      <div className="flex gap-2 px-4 py-3 overflow-x-auto bg-white border-b border-gray-100">
         {FILTERS.map(f => (
           <button
-            key={f}
-            onClick={() => setFilter(f)}
+            key={f.id}
+            onClick={() => setFilter(f.id)}
             className="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors"
-            style={filter === f
-              ? { background: '#F59E0B', color: '#fff' }
+            style={filter === f.id
+              ? { background: f.id === 'bestandskunden' ? '#8B5CF6' : '#F59E0B', color: '#fff' }
               : { background: '#F3F4F6', color: '#6B7280' }
             }
           >
-            {FILTER_LABELS[f] ?? f}
+            {f.label}
           </button>
         ))}
       </div>
 
-      {/* List */}
       <div className="flex-1 px-4 py-3 flex flex-col gap-2">
         {loading ? (
           <p className="text-center text-gray-400 mt-10 text-sm">Laden...</p>
-        ) : filtered.length === 0 ? (
+        ) : sorted.length === 0 ? (
           <div className="text-center mt-16">
             <p className="text-4xl mb-3">📭</p>
             <p className="text-gray-500 font-semibold text-sm">Noch keine Kontakte</p>
-            <button
-              className="mt-4 px-5 py-2.5 bg-amber-400 text-white text-sm font-bold rounded-xl"
-              onClick={() => setShowAdd(true)}
-            >
-              + Kontakt hinzufügen
-            </button>
+            {isBestandskunden ? (
+              <button className="mt-4 px-5 py-2.5 bg-purple-500 text-white text-sm font-bold rounded-xl" onClick={onAddBestandskunde}>
+                + Bestandskunden hinzufügen
+              </button>
+            ) : (
+              <button className="mt-4 px-5 py-2.5 bg-amber-400 text-white text-sm font-bold rounded-xl" onClick={() => setShowAdd(true)}>
+                + Kontakt hinzufügen
+              </button>
+            )}
           </div>
         ) : (
-          filtered.map(c => (
-            <button
+          sorted.map(c => (
+            <ContactCard
               key={c.id}
-              onClick={() => onContactSelect(c)}
-              className="btn-press bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3 text-left"
-            >
-              <div
-                className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
-                style={{ background: avatarColor(c.name) }}
-              >
-                {initials(c.name)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-gray-900 text-sm">{c.name}</p>
-                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                  <SourceBadge source={c.source} />
-                  {c.product && <span className="text-xs text-gray-400">{c.product}</span>}
-                </div>
-                <p className="text-xs text-gray-300 mt-0.5">
-                  {new Date(c.added_at).toLocaleDateString('de-DE')}
-                </p>
-              </div>
-              <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                <StatusBadge status={c.status} />
-                <span className="text-gray-300 text-base">›</span>
-              </div>
-            </button>
+              contact={c}
+              onSelect={() => onContactSelect(c)}
+              showQuickDial={isBestandskunden}
+              initials={initials}
+              avatarColor={avatarColor}
+            />
           ))
         )}
       </div>
 
-      {/* FAB */}
       <button
         onClick={() => setShowAdd(true)}
         className="btn-press fixed bottom-24 right-5 w-14 h-14 rounded-full bg-amber-400 text-white text-2xl font-bold shadow-xl flex items-center justify-center z-20"
@@ -116,7 +127,51 @@ export function PipelineScreen({ onContactSelect }) {
         +
       </button>
 
-      {showAdd && <AddContactModal onClose={() => setShowAdd(false)} onSave={async (data) => { await addContact(data); setShowAdd(false) }} />}
+      {showAdd && (
+        <AddContactModal
+          onClose={() => setShowAdd(false)}
+          onSave={async (data) => { await addContact(data); setShowAdd(false) }}
+        />
+      )}
+    </div>
+  )
+}
+
+function ContactCard({ contact: c, onSelect, showQuickDial, initials, avatarColor }) {
+  return (
+    <div className="bg-white rounded-2xl p-4 shadow-sm">
+      <button className="btn-press flex items-center gap-3 w-full text-left" onClick={onSelect}>
+        <div
+          className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+          style={{ background: avatarColor(c.name) }}
+        >
+          {initials(c.name)}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-gray-900 text-sm">{c.name}</p>
+          {showQuickDial && c._callCount > 0 && (
+            <p className="text-xs text-gray-400">{c._callCount} Versuch{c._callCount !== 1 ? 'e' : ''}</p>
+          )}
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            <SourceBadge source={c.source} />
+            {c.product && <span className="text-xs text-gray-400">{c.product}</span>}
+          </div>
+          <p className="text-xs text-gray-300 mt-0.5">{new Date(c.added_at).toLocaleDateString('de-DE')}</p>
+        </div>
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          <StatusBadge status={c.status} />
+          <span className="text-gray-300 text-base">›</span>
+        </div>
+      </button>
+      {showQuickDial && c.phone && (
+        <a
+          href={`tel:${c.phone.replace(/\s/g, '')}`}
+          className="btn-press flex items-center justify-center gap-2 mt-3 py-2.5 rounded-xl bg-green-50 text-green-700 text-sm font-semibold"
+          onClick={e => e.stopPropagation()}
+        >
+          📞 Anrufen
+        </a>
+      )}
     </div>
   )
 }
@@ -132,8 +187,8 @@ function AddContactModal({ onClose, onSave }) {
         <h2 className="text-base font-bold text-gray-900 mb-4">Kontakt hinzufügen</h2>
 
         {[
-          { label: 'Name *', key: 'name', type: 'text', placeholder: 'Max Mustermann' },
-          { label: 'Telefon', key: 'phone', type: 'tel', placeholder: '+49 ...' },
+          { label: 'Name *',  key: 'name',    type: 'text', placeholder: 'Max Mustermann' },
+          { label: 'Telefon', key: 'phone',   type: 'tel',  placeholder: '+49 ...' },
           { label: 'Adresse', key: 'address', type: 'text', placeholder: 'Musterstr. 1, 12345 Stadt' },
         ].map(f => (
           <label key={f.key} className="block mb-3">
@@ -145,7 +200,7 @@ function AddContactModal({ onClose, onSave }) {
 
         <label className="block mb-3">
           <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Produkt</span>
-          <select className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm bg-white focus:outline-none focus:border-amber-400"
+          <select className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm bg-white focus:outline-none"
             value={form.product} onChange={e => set('product', e.target.value)}>
             <option value="">— wählen —</option>
             {PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
@@ -154,7 +209,7 @@ function AddContactModal({ onClose, onSave }) {
 
         <label className="block mb-3">
           <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Quelle</span>
-          <select className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm bg-white focus:outline-none focus:border-amber-400"
+          <select className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm bg-white focus:outline-none"
             value={form.source} onChange={e => set('source', e.target.value)}>
             <option value="tür">Haustür-Kontakt</option>
             <option value="anruf">Bestandskunde</option>
@@ -163,7 +218,7 @@ function AddContactModal({ onClose, onSave }) {
 
         <label className="block mb-5">
           <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Notiz</span>
-          <textarea rows={2} className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400 resize-none"
+          <textarea rows={2} className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none resize-none"
             value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Optional..." />
         </label>
 
