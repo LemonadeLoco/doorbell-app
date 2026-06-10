@@ -17,35 +17,103 @@ body {
   overscroll-behavior: none;
 }
 
-.btn-press:active {
-  transform: scale(0.97);
-  transition: transform 80ms;
+body.sheet-open {
+  overscroll-behavior: none;
+  overflow: hidden;
 }
 
+/* Universal pressable feedback */
+.pressable {
+  transition: transform 80ms ease, opacity 80ms ease;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  cursor: pointer;
+}
+.pressable:active {
+  transform: scale(0.96);
+  opacity: 0.85;
+}
+
+/* Legacy compat */
+.btn-press {
+  transition: transform 80ms ease, opacity 80ms ease;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  cursor: pointer;
+}
+.btn-press:active {
+  transform: scale(0.96);
+  opacity: 0.85;
+}
+
+/* Sheet slide up */
 .sheet-enter {
   animation: slideUp 200ms ease-out forwards;
 }
-
 @keyframes slideUp {
   from { transform: translateY(100%); opacity: 0; }
   to   { transform: translateY(0);    opacity: 1; }
 }
 
-.toast-enter {
-  animation: fadeInOut 1.8s ease forwards;
+/* Screen slide in from right */
+.screen-slide-in {
+  animation: screenSlideIn 220ms ease-out;
+}
+@keyframes screenSlideIn {
+  from { transform: translateX(100%); opacity: 0.8; }
+  to   { transform: translateX(0);    opacity: 1; }
 }
 
-@keyframes fadeInOut {
-  0%   { opacity: 0; transform: translateY(10px); }
-  15%  { opacity: 1; transform: translateY(0); }
+/* Toast */
+.toast-fade {
+  animation: toastFade 1.8s ease forwards;
+}
+@keyframes toastFade {
+  0%   { opacity: 0; transform: translateY(6px); }
+  12%  { opacity: 1; transform: translateY(0); }
   75%  { opacity: 1; }
   100% { opacity: 0; }
 }
 
+/* Tap toast (longer, controlled by JS) */
+.tap-toast-in {
+  animation: tapToastIn 150ms ease-out forwards;
+}
+@keyframes tapToastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.tap-toast-out {
+  animation: tapToastOut 200ms ease-in forwards;
+}
+@keyframes tapToastOut {
+  from { opacity: 1; transform: translateX(-50%) translateY(0); }
+  to   { opacity: 0; transform: translateX(-50%) translateY(6px); }
+}
+
+/* Door counter bounce */
+.counter-pop {
+  animation: counterPop 200ms ease-out;
+}
+@keyframes counterPop {
+  0%   { transform: scale(1.28); }
+  60%  { transform: scale(0.97); }
+  100% { transform: scale(1.0); }
+}
+
+/* Mini stat pop */
+.stat-pop {
+  animation: statPop 180ms ease-out;
+}
+@keyframes statPop {
+  0%   { transform: scale(1.2); }
+  100% { transform: scale(1.0); }
+}
+
+/* Red pulsing dot */
 .pulse-dot {
   animation: pulse 1.5s infinite;
 }
-
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.3; }

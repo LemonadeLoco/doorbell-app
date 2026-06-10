@@ -4,10 +4,7 @@ import { SESSION_KEY, OFFLINE_TAPS_KEY } from '../lib/constants'
 
 export function useSession() {
   const [session, setSession] = useState(() => {
-    try {
-      const saved = localStorage.getItem(SESSION_KEY)
-      return saved ? JSON.parse(saved) : null
-    } catch { return null }
+    try { const s = localStorage.getItem(SESSION_KEY); return s ? JSON.parse(s) : null } catch { return null }
   })
   const [elapsed, setElapsed] = useState(0)
   const timerRef = useRef(null)
@@ -19,18 +16,13 @@ export function useSession() {
       tick()
       timerRef.current = setInterval(tick, 1000)
     } else {
-      setElapsed(0)
-      clearInterval(timerRef.current)
+      setElapsed(0); clearInterval(timerRef.current)
     }
     return () => clearInterval(timerRef.current)
   }, [session?.id])
 
   const startSession = async () => {
-    const { data, error } = await supabase
-      .from('sessions')
-      .insert({ doors_knocked: 0, conversations: 0 })
-      .select()
-      .single()
+    const { data, error } = await supabase.from('sessions').insert({ doors_knocked: 0, conversations: 0 }).select().single()
     if (error) throw error
     const s = { ...data, _doors: 0, _convs: 0, _contacts: 0, _appts: 0 }
     setSession(s)
@@ -46,10 +38,18 @@ export function useSession() {
     })
   }
 
-  const incrementDoors = () => updateLocal({ _doors: (session?._doors ?? 0) + 1 })
-  const incrementConvs  = () => updateLocal({ _convs: (session?._convs ?? 0) + 1 })
-  const incrementContacts = () => updateLocal({ _contacts: (session?._contacts ?? 0) + 1 })
-  const incrementAppts   = () => updateLocal({ _appts: (session?._appts ?? 0) + 1 })
+  const increment = (key, amount = 1) =>
+    updateLocal({ [key]: Math.max(0, ((session?.[key]) ?? 0) + amount) })
+
+  const incrementDoors    = () => increment('_doors')
+  const incrementConvs    = () => increment('_convs')
+  const incrementContacts = () => increment('_contacts')
+  const incrementAppts    = () => increment('_appts')
+
+  const decrementDoors    = () => increment('_doors', -1)
+  const decrementConvs    = () => increment('_convs', -1)
+  const decrementContacts = () => increment('_contacts', -1)
+  const decrementAppts    = () => increment('_appts', -1)
 
   const endSession = async () => {
     if (!session) return
@@ -68,10 +68,33 @@ export function useSession() {
       const raw = localStorage.getItem(OFFLINE_TAPS_KEY)
       if (!raw) return
       const taps = JSON.parse(raw)
-      if (taps.length === 0) return
-      await supabase.from('door_taps').insert(taps)
+      if (!taps.length) return
+      await supabase.from('door_taps').insert(taps.map(t => { const { _localId, ...rest } = t; return rest }))
       localStorage.removeItem(OFFLINE_TAPS_KEY)
     } catch {}
+  }
+
+  // Check if there's a stale session from a previous crash (started >5 min ago, not ended)
+  const checkStaleSessions = async () => {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const { data } = await supabase
+      .from('sessions')
+      .select('*')
+      .is('ended_at', null)
+      .lt('started_at', fiveMinAgo)
+      .order('started_at', { ascending: false })
+      .limit(1)
+    return data?.[0] ?? null
+  }
+
+  const resumeSession = (dbSession) => {
+    const s = { ...dbSession, _doors: dbSession.doors_knocked ?? 0, _convs: dbSession.conversations ?? 0, _contacts: 0, _appts: 0 }
+    setSession(s)
+    localStorage.setItem(SESSION_KEY, JSON.stringify(s))
+  }
+
+  const abandonStaleSession = async (dbSession) => {
+    await supabase.from('sessions').update({ ended_at: new Date().toISOString() }).eq('id', dbSession.id)
   }
 
   const formatElapsed = () => {
@@ -82,16 +105,10 @@ export function useSession() {
   }
 
   return {
-    session,
-    isActive: !!session,
-    elapsed,
-    formatElapsed,
-    startSession,
-    endSession,
-    incrementDoors,
-    incrementConvs,
-    incrementContacts,
-    incrementAppts,
-    syncOfflineTaps,
+    session, isActive: !!session, elapsed, formatElapsed,
+    startSession, endSession, syncOfflineTaps,
+    incrementDoors, incrementConvs, incrementContacts, incrementAppts,
+    decrementDoors, decrementConvs, decrementContacts, decrementAppts,
+    checkStaleSessions, resumeSession, abandonStaleSession,
   }
 }

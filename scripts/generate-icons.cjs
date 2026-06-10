@@ -1,49 +1,24 @@
-// Generates simple amber PNG icons using only Node.js built-ins
-const zlib = require('zlib')
-const fs   = require('fs')
-const path = require('path')
+const sharp = require('sharp')
+const path  = require('path')
+const fs    = require('fs')
 
-function crc32(buf) {
-  const t = []
-  for (let n = 0; n < 256; n++) {
-    let c = n
-    for (let k = 0; k < 8; k++) c = (c & 1) ? 0xEDB88320 ^ (c >>> 1) : c >>> 1
-    t[n] = c
-  }
-  let crc = 0xFFFFFFFF
-  for (let i = 0; i < buf.length; i++) crc = (crc >>> 8) ^ t[(crc ^ buf[i]) & 0xFF]
-  return (crc ^ 0xFFFFFFFF) >>> 0
-}
-
-function chunk(type, data) {
-  const len = Buffer.alloc(4); len.writeUInt32BE(data.length)
-  const tb  = Buffer.from(type)
-  const crcBuf = Buffer.alloc(4)
-  crcBuf.writeUInt32BE(crc32(Buffer.concat([tb, data])))
-  return Buffer.concat([len, tb, data, crcBuf])
-}
-
-function makePNG(size, r, g, b) {
-  const sig  = Buffer.from([137,80,78,71,13,10,26,10])
-  const ihdr = Buffer.alloc(13)
-  ihdr.writeUInt32BE(size, 0); ihdr.writeUInt32BE(size, 4)
-  ihdr[8] = 8; ihdr[9] = 2 // 8-bit RGB
-
-  const row = size * 3 + 1
-  const raw = Buffer.alloc(row * size)
-  for (let y = 0; y < size; y++) {
-    raw[y * row] = 0 // filter None
-    for (let x = 0; x < size; x++) {
-      const i = y * row + 1 + x * 3
-      raw[i] = r; raw[i+1] = g; raw[i+2] = b
-    }
-  }
-  const idat = zlib.deflateSync(raw)
-  return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))])
-}
+const svg = `<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" rx="112" fill="#F59E0B"/>
+  <path d="M256 82 L432 218 L432 418 L80 418 L80 218 Z"
+        fill="none" stroke="white" stroke-width="30"
+        stroke-linejoin="round" stroke-linecap="round"/>
+  <rect x="135" y="315" width="66" height="103" rx="9" fill="#FDE68A"/>
+  <rect x="223" y="268" width="66" height="150" rx="9" fill="white"/>
+  <rect x="311" y="289" width="66" height="129" rx="9" fill="#FDE68A"/>
+</svg>`
 
 const dir = path.join(__dirname, '..', 'public', 'icons')
 fs.mkdirSync(dir, { recursive: true })
-fs.writeFileSync(path.join(dir, 'icon-192.png'), makePNG(192, 245, 158, 11))
-fs.writeFileSync(path.join(dir, 'icon-512.png'), makePNG(512, 245, 158, 11))
-console.log('Icons generated.')
+
+async function run() {
+  for (const size of [192, 512]) {
+    await sharp(Buffer.from(svg)).resize(size, size).png().toFile(path.join(dir, `icon-${size}.png`))
+    console.log(`icon-${size}.png done`)
+  }
+}
+run().catch(console.error)

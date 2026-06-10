@@ -3,6 +3,7 @@ import { supabase } from './lib/supabase'
 import { useSession } from './hooks/useSession'
 import { useUserSettings } from './hooks/useUserSettings'
 import { BottomNav } from './components/BottomNav'
+import { InstallGuide } from './components/InstallGuide'
 import { LoginScreen } from './screens/LoginScreen'
 import { HomeScreen } from './screens/HomeScreen'
 import { RundeScreen } from './screens/RundeScreen'
@@ -16,14 +17,21 @@ export default function App() {
   const [authUser, setAuthUser]           = useState(undefined)
   const [screen, setScreen]               = useState('home')
   const [selectedContact, setSelectedContact] = useState(null)
-  const sessionHook   = useSession()
-  const settingsHook  = useUserSettings()
+  const [staleSession, setStaleSession]   = useState(null)
+  const sessionHook  = useSession()
+  const settingsHook = useUserSettings()
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setAuthUser(data.session?.user ?? null))
     const { data: listener } = supabase.auth.onAuthStateChange((_e, s) => setAuthUser(s?.user ?? null))
     return () => listener.subscription.unsubscribe()
   }, [])
+
+  // Check for stale sessions after auth
+  useEffect(() => {
+    if (!authUser || sessionHook.isActive) return
+    sessionHook.checkStaleSessions().then(s => { if (s) setStaleSession(s) })
+  }, [authUser])
 
   if (authUser === undefined) {
     return (
@@ -34,6 +42,31 @@ export default function App() {
   }
 
   if (!authUser) return <LoginScreen />
+
+  // Stale session recovery prompt
+  if (staleSession) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-gray-50">
+        <div className="bg-white rounded-2xl p-6 shadow-sm w-full max-w-sm">
+          <p className="text-xl font-extrabold text-gray-900 mb-2">Unterbrochene Runde</p>
+          <p className="text-sm text-gray-500 mb-2">
+            Du hattest eine aktive Runde vom {new Date(staleSession.started_at).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })} Uhr.
+          </p>
+          <p className="text-sm text-gray-500 mb-5">{staleSession.doors_knocked ?? 0} Türen erfasst.</p>
+          <div className="flex flex-col gap-3">
+            <button className="pressable w-full py-4 rounded-2xl bg-amber-400 text-white font-bold"
+              onClick={() => { sessionHook.resumeSession(staleSession); setStaleSession(null); setScreen('runde') }}>
+              Fortfahren
+            </button>
+            <button className="pressable w-full py-3 rounded-2xl bg-gray-100 text-gray-600 font-semibold"
+              onClick={() => { sessionHook.abandonStaleSession(staleSession); setStaleSession(null) }}>
+              Beenden &amp; neu starten
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // Full-screen flows (no bottom nav)
   if (screen === 'contact' && selectedContact) {
@@ -49,9 +82,7 @@ export default function App() {
       <SettingsScreen
         onBack={() => setScreen('home')}
         userSettings={settingsHook.settings}
-        onSave={async (key, value) => {
-          await settingsHook.save(key, value)
-        }}
+        onSave={settingsHook.save}
       />
     )
   }
@@ -63,11 +94,7 @@ export default function App() {
     <div className="min-h-screen bg-gray-50">
       <main className="min-h-screen">
         {screen === 'home' && (
-          <HomeScreen
-            setScreen={setScreen}
-            sessionData={sessionHook}
-            userSettings={settingsHook.settings}
-          />
+          <HomeScreen setScreen={setScreen} sessionData={sessionHook} userSettings={settingsHook.settings} />
         )}
         {screen === 'runde'    && <RundeScreen sessionHook={sessionHook} />}
         {screen === 'pipeline' && (
@@ -79,6 +106,7 @@ export default function App() {
         {screen === 'stats' && <StatsScreen userSettings={settingsHook.settings} />}
       </main>
       <BottomNav screen={screen} setScreen={setScreen} sessionActive={sessionHook.isActive} />
+      <InstallGuide />
     </div>
   )
 }
