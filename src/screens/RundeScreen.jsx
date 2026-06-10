@@ -22,14 +22,16 @@ export function RundeScreen({ sessionHook }) {
 
   const [sheet, setSheet]         = useState(null) // null | 'kontakt' | 'termin' | 'wiedervorlage'
   const [tapToast, setTapToast]   = useState(null) // { msg, address, loading, tapId, contactId, outcome }
-  const [showUndo, setShowUndo]   = useState(false)
+  const toastDismissTimer = useRef(null)
   const [doorKey, setDoorKey]     = useState(0)    // key change triggers counter animation
   const [convKey, setConvKey]     = useState(0)
   const [contactKey, setContactKey] = useState(0)
   const [apptKey, setApptKey]     = useState(0)
   const [offlineCount, setOfflineCount] = useState(0)
   const [isOnline, setIsOnline]   = useState(navigator.onLine)
+  const [cooldowns, setCooldowns] = useState({}) // outcome -> disabled until
   const undoTimer = useRef(null)
+  const lastTapTime = useRef({})
   const { toast, show }           = useToast()
   const { getPosition }           = useGPS()
 
@@ -105,17 +107,16 @@ export function RundeScreen({ sessionHook }) {
 
     const { tapId } = await saveTap(outcome, extra.contactId ?? null)
 
-    // Show GPS toast + undo
+    // Show GPS toast + undo — auto-dismiss after 5s
     setTapToast({ outcome, tapId, contactId: extra.contactId ?? null, address: null, loading: !!tapId })
-    setShowUndo(true)
-    clearTimeout(undoTimer.current)
-    undoTimer.current = setTimeout(() => setShowUndo(false), 4000)
+    clearTimeout(toastDismissTimer.current)
+    toastDismissTimer.current = setTimeout(() => setTapToast(null), 5000)
   }
 
   const handleUndo = async () => {
     if (!tapToast) return
     clearTimeout(undoTimer.current)
-    setShowUndo(false)
+    clearTimeout(toastDismissTimer.current)
 
     // Delete tap
     if (tapToast.tapId) {
@@ -154,9 +155,8 @@ export function RundeScreen({ sessionHook }) {
       if (isTermin) { incrementAppts(); setApptKey(k => k + 1) }
 
       setTapToast({ outcome, tapId, contactId: contact?.id, address: data.address, loading: !data.address })
-      setShowUndo(true)
-      clearTimeout(undoTimer.current)
-      undoTimer.current = setTimeout(() => setShowUndo(false), 4000)
+      clearTimeout(toastDismissTimer.current)
+      toastDismissTimer.current = setTimeout(() => setTapToast(null), 5000)
 
       show(isTermin ? '✅ Termin gespeichert' : isWiedervorlage ? '✅ Wiedervorlage gespeichert' : '✅ Kontakt gespeichert')
     } catch { show('Fehler beim Speichern') }
@@ -196,7 +196,7 @@ export function RundeScreen({ sessionHook }) {
   const toastText = tapToast?.loading
     ? '📍 Standort wird erfasst...'
     : tapToast?.address
-    ? `📍 ${tapToast.address}`
+    ? `📍 ${tapToast.address.length > 25 ? tapToast.address.slice(0, 25) + '…' : tapToast.address}`
     : '📍 Standort gespeichert'
 
   return (
@@ -237,44 +237,60 @@ export function RundeScreen({ sessionHook }) {
 
       {/* Outcome buttons */}
       <div className="flex flex-col gap-2 px-4 mt-3">
-        {outcomes.map(o => (
-          <button
-            key={o.label}
-            className="pressable flex items-center gap-3 px-4 rounded-2xl"
-            style={{ minHeight: 62, background: o.bg, color: o.text }}
-            onClick={() => {
-              haptic('light')
-              if (o.sheet) setSheet(o.sheet)
-              else handleTap(o.outcome)
-            }}
-          >
-            <span className="text-xl w-8 text-center flex-shrink-0">{o.icon}</span>
-            <div className="flex-1 text-left">
-              <p className="font-bold text-sm">{o.label}</p>
-              <p className="text-xs opacity-60">{o.sub}</p>
-            </div>
-            <span className="text-lg opacity-40">›</span>
-          </button>
-        ))}
+        {outcomes.map(o => {
+          const onCooldown = cooldowns[o.outcome] && Date.now() < cooldowns[o.outcome]
+          return (
+            <button
+              key={o.label}
+              className="pressable flex items-center gap-3 px-4 rounded-2xl"
+              style={{ minHeight: 62, background: o.bg, color: o.text, opacity: onCooldown ? 0.55 : 1 }}
+              disabled={onCooldown}
+              onClick={() => {
+                haptic('light')
+                // 600ms cooldown per button
+                setCooldowns(prev => ({ ...prev, [o.outcome]: Date.now() + 600 }))
+                setTimeout(() => setCooldowns(prev => ({ ...prev, [o.outcome]: 0 })), 600)
+                if (o.sheet) setSheet(o.sheet)
+                else handleTap(o.outcome)
+              }}
+            >
+              <span className="text-xl w-8 text-center flex-shrink-0">{o.icon}</span>
+              <div className="flex-1 text-left">
+                <p className="font-bold text-sm">{o.label}</p>
+                <p className="text-xs opacity-60">{o.sub}</p>
+              </div>
+              <span className="text-lg opacity-40">›</span>
+            </button>
+          )
+        })}
       </div>
 
       <button className="pressable mx-4 mt-5 py-3 text-gray-400 text-sm font-medium text-center" onClick={endSession}>
         Runde beenden
       </button>
 
-      {/* GPS + Undo toast */}
+      {/* GPS + Undo toast — position:fixed so it can't be clipped by parent overflow */}
       {tapToast && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 tap-toast-in" style={{ width: 'calc(100vw - 32px)', maxWidth: 360 }}>
-          <div className="flex items-center gap-2 bg-gray-800 text-white text-sm px-4 py-3 rounded-2xl shadow-xl">
-            <span className="flex-1 truncate text-xs">{toastText}</span>
-            {showUndo && (
-              <button
-                onClick={handleUndo}
-                className="pressable flex-shrink-0 text-amber-400 font-bold text-xs whitespace-nowrap"
-              >
-                ↩ Rückgängig
-              </button>
-            )}
+        <div
+          className="tap-toast-in"
+          style={{
+            position: 'fixed',
+            bottom: 100,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 9999,
+            width: 'calc(100vw - 32px)',
+            maxWidth: 360,
+          }}
+        >
+          <div className="flex items-center gap-3 bg-gray-800 text-white text-xs px-4 py-3 rounded-2xl shadow-xl">
+            <span className="flex-1 truncate">{toastText}</span>
+            <button
+              onClick={handleUndo}
+              className="pressable flex-shrink-0 text-amber-400 font-bold text-xs whitespace-nowrap"
+            >
+              ↩ Rückgängig
+            </button>
           </div>
         </div>
       )}

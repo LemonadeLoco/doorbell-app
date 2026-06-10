@@ -3,9 +3,11 @@ import { supabase } from '../lib/supabase'
 
 export function HomeScreen({ setScreen, sessionData, userSettings }) {
   const [todayStats, setTodayStats] = useState({ doors: 0, convs: 0, contacts: 0, appts: 0 })
-  const [upcoming, setUpcoming]     = useState([])
+  const [todayAppts, setTodayAppts] = useState([])      // { id, name, address, appt_at }
+  const [todayFollowups, setTodayFollowups] = useState([]) // wiedervorlage due today
   const [callCount, setCallCount]   = useState(0)
   const [salesRevenue, setSalesRevenue] = useState(0)
+  const [todayApptCount, setTodayApptCount] = useState(0)
 
   const greeting = () => {
     const h = new Date().getHours()
@@ -18,21 +20,31 @@ export function HomeScreen({ setScreen, sessionData, userSettings }) {
   useEffect(() => { loadAll() }, [])
 
   const todayStart = () => { const d = new Date(); d.setHours(0,0,0,0); return d.toISOString() }
+  const todayEnd   = () => { const d = new Date(); d.setHours(23,59,59,999); return d.toDateString() }
+
+  const todayStr = new Date().toISOString().split('T')[0]
 
   const loadAll = async () => {
-    const [callRes, upcomingRes, tapRes, salesRes] = await Promise.all([
+    const [callRes, apptRes, followupRes, tapRes, salesRes] = await Promise.all([
       supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('status', 'anrufen'),
-      supabase.from('contacts').select('name, appt_at')
+      supabase.from('contacts')
+        .select('id, name, address, appt_at')
         .eq('status', 'termin')
-        .gte('appt_at', new Date().toISOString())
-        .lte('appt_at', new Date(Date.now() + 2 * 86400000).toISOString())
+        .gte('appt_at', todayStart())
+        .lte('appt_at', new Date(new Date().setHours(23,59,59,999)).toISOString())
         .order('appt_at'),
+      supabase.from('contacts')
+        .select('id, name')
+        .eq('status', 'wiedervorlage')
+        .gte('followup_at', todayStr)
+        .lte('followup_at', todayStr),
       supabase.from('door_taps').select('outcome').gte('tapped_at', todayStart()),
       supabase.from('contacts').select('sale_amount').eq('status', 'verkauft'),
     ])
 
     setCallCount(callRes.count ?? 0)
-    setUpcoming(upcomingRes.data ?? [])
+    setTodayAppts(apptRes.data ?? [])
+    setTodayFollowups(followupRes.data ?? [])
     setSalesRevenue((salesRes.data ?? []).reduce((s, c) => s + (parseFloat(c.sale_amount) || 0), 0))
 
     const taps = tapRes.data ?? []
@@ -45,6 +57,8 @@ export function HomeScreen({ setScreen, sessionData, userSettings }) {
       contacts: cts.filter(c => ['anrufen','kontakt'].includes(c.status)).length,
       appts:    cts.filter(c => c.status === 'termin').length,
     }
+
+    setTodayApptCount((apptRes.data ?? []).length)
 
     if (sessionData?.isActive) {
       setTodayStats({
@@ -63,6 +77,11 @@ export function HomeScreen({ setScreen, sessionData, userSettings }) {
   const total   = base + salesRevenue
   const pct     = Math.min(100, Math.round((total / target) * 100))
   const fmt     = (n) => '€' + Math.round(n).toLocaleString('de-DE')
+
+  const nextAppt = todayAppts[0]
+  const nextApptTime = nextAppt?.appt_at
+    ? new Date(nextAppt.appt_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+    : null
 
   return (
     <div className="flex flex-col gap-4 p-4 pb-28">
@@ -92,6 +111,24 @@ export function HomeScreen({ setScreen, sessionData, userSettings }) {
         <p className="text-xs mt-2 opacity-80">{pct}% erreicht</p>
       </div>
 
+      {/* Today appointments banner — shown when there are appts today */}
+      {todayApptCount > 0 && (
+        <button
+          className="pressable flex items-center gap-3 w-full rounded-2xl px-4 py-3 shadow-sm text-left"
+          style={{ background: '#FEF3C7' }}
+          onClick={() => setScreen('pipeline')}
+        >
+          <span className="text-lg">📅</span>
+          <div className="flex-1">
+            <p className="text-sm font-bold text-amber-800">
+              Heute {todayApptCount} Termin{todayApptCount !== 1 ? 'e' : ''}
+              {nextApptTime ? ` · Nächster: ${nextApptTime}` : ''}
+            </p>
+          </div>
+          <span className="text-amber-600 font-bold">→</span>
+        </button>
+      )}
+
       {/* Today stats */}
       <div>
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Heute</p>
@@ -117,27 +154,44 @@ export function HomeScreen({ setScreen, sessionData, userSettings }) {
         {sessionData?.isActive ? '▶ Runde läuft — Öffnen' : '▲ Runde starten'}
       </button>
 
-      {/* To-do */}
-      <div className="bg-white rounded-2xl p-4 shadow-sm">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Offene Aufgaben</p>
-        <button className="flex items-center justify-between w-full mb-2" onClick={() => setScreen('pipeline')}>
-          <span className="text-sm text-gray-700">📞 Zum Anrufen</span>
-          <span className="text-sm font-bold text-blue-600">{callCount}</span>
-        </button>
-        {upcoming.length > 0 && (
-          <div className="border-t border-gray-100 pt-3 mt-2">
-            <p className="text-xs text-gray-400 mb-2">Bevorstehende Termine</p>
-            {upcoming.map((c, i) => (
-              <div key={i} className="flex justify-between text-sm py-1">
-                <span className="text-gray-700 font-medium">{c.name}</span>
-                <span className="text-gray-400">
-                  {new Date(c.appt_at).toLocaleDateString('de-DE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                </span>
+      {/* Heute — appointments + wiedervorlage */}
+      {(todayAppts.length > 0 || todayFollowups.length > 0) && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Heute</p>
+          {todayAppts.map((c) => (
+            <div key={c.id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+              <span className="text-base">📅</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-900">{c.name}</p>
+                {c.address && <p className="text-xs text-gray-400 truncate">{c.address}</p>}
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+              <span className="text-sm font-bold text-green-700 flex-shrink-0">
+                {new Date(c.appt_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr
+              </span>
+            </div>
+          ))}
+          {todayFollowups.map((c) => (
+            <div key={c.id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+              <span className="text-base">📱</span>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-gray-900">{c.name}</p>
+                <p className="text-xs text-blue-500">Wiedervorlage heute fällig</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Open tasks */}
+      {callCount > 0 && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Offene Aufgaben</p>
+          <button className="flex items-center justify-between w-full" onClick={() => setScreen('pipeline')}>
+            <span className="text-sm text-gray-700">📞 Zum Anrufen</span>
+            <span className="text-sm font-bold text-blue-600">{callCount}</span>
+          </button>
+        </div>
+      )}
     </div>
   )
 }

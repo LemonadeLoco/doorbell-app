@@ -20,7 +20,7 @@ export function LoginScreen() {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <div className="w-16 h-16 rounded-2xl bg-amber-400 flex items-center justify-center text-3xl mx-auto mb-4 shadow-lg">🚪</div>
-          <h1 className="text-2xl font-extrabold text-gray-900">Heim &amp; Haus</h1>
+          <h1 className="text-2xl font-extrabold text-gray-900">Doorbell</h1>
           <p className="text-sm text-gray-400 mt-1">Sales Tracker</p>
         </div>
 

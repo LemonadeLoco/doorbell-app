@@ -2,19 +2,33 @@ import { useState, useEffect, useRef } from 'react'
 import { PRODUCTS } from '../lib/constants'
 
 export function ContactSheet({ mode, onSave, onClose, getPosition, initialAddress = '' }) {
-  const isTermin       = mode === 'termin'
+  const isTermin        = mode === 'termin'
   const isWiedervorlage = mode === 'wiedervorlage'
   const [form, setForm]       = useState({ name: '', phone: '', address: initialAddress, apartment: '', product: '', notes: '', appt_at: '', followup_at: '' })
   const [geoLoading, setGeoLoading] = useState(false)
-  const sheetRef = useRef(null)
-  const startY   = useRef(0)
-  const dragY    = useRef(0)
+  const sheetRef  = useRef(null)
+  const startY    = useRef(0)
+  const isDragging = useRef(false)
+  const dragY     = useRef(0)
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
+  // Lock body scroll on open — position:fixed is the only reliable way on iOS Safari
   useEffect(() => {
-    document.body.classList.add('sheet-open')
-    return () => document.body.classList.remove('sheet-open')
+    const scrollY = window.scrollY
+    document.body.style.overflow   = 'hidden'
+    document.body.style.position   = 'fixed'
+    document.body.style.width      = '100%'
+    document.body.style.top        = `-${scrollY}px`
+    document.body.style.overscrollBehavior = 'none'
+    return () => {
+      document.body.style.overflow   = ''
+      document.body.style.position   = ''
+      document.body.style.width      = ''
+      document.body.style.top        = ''
+      document.body.style.overscrollBehavior = ''
+      window.scrollTo(0, scrollY)
+    }
   }, [])
 
   useEffect(() => {
@@ -26,20 +40,36 @@ export function ContactSheet({ mode, onSave, onClose, getPosition, initialAddres
     }).catch(() => setGeoLoading(false))
   }, [])
 
-  const onTouchStart = (e) => { startY.current = e.touches[0].clientY }
-  const onTouchMove  = (e) => {
+  // Touch handlers only on the drag handle — NOT on sheet content
+  const onHandleTouchStart = (e) => {
+    startY.current   = e.touches[0].clientY
+    isDragging.current = true
+    dragY.current    = 0
+    if (sheetRef.current) {
+      sheetRef.current.style.transition = 'none'
+    }
+  }
+  const onHandleTouchMove = (e) => {
+    if (!isDragging.current) return
+    e.preventDefault()
+    e.stopPropagation()
     const diff = e.touches[0].clientY - startY.current
     dragY.current = diff
     if (diff > 0 && sheetRef.current) {
       sheetRef.current.style.transform = `translateY(${diff}px)`
-      sheetRef.current.style.transition = 'none'
     }
   }
-  const onTouchEnd = () => {
-    if (dragY.current > 80) { onClose() }
-    else if (sheetRef.current) {
-      sheetRef.current.style.transform = ''
+  const onHandleTouchEnd = () => {
+    isDragging.current = false
+    if (dragY.current > 80) {
+      if (sheetRef.current) {
+        sheetRef.current.style.transition = 'transform 0.2s ease-out'
+        sheetRef.current.style.transform  = 'translateY(100%)'
+      }
+      setTimeout(onClose, 200)
+    } else if (sheetRef.current) {
       sheetRef.current.style.transition = 'transform 0.2s ease-out'
+      sheetRef.current.style.transform  = 'translateY(0)'
     }
     dragY.current = 0
   }
@@ -69,14 +99,15 @@ export function ContactSheet({ mode, onSave, onClose, getPosition, initialAddres
         className="sheet-enter w-full bg-white rounded-t-2xl shadow-2xl p-5 pb-8 max-h-[92vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
-        {/* Drag handle */}
+        {/* Drag handle — min 44px hit area, touch handlers here only */}
         <div
-          className="flex justify-center pb-3 -mt-1 cursor-grab"
-          onTouchStart={onTouchStart}
-          onTouchMove={onTouchMove}
-          onTouchEnd={onTouchEnd}
+          className="flex flex-col items-center pb-3 -mt-1 cursor-grab select-none"
+          style={{ touchAction: 'none', minHeight: 44, justifyContent: 'center' }}
+          onTouchStart={onHandleTouchStart}
+          onTouchMove={onHandleTouchMove}
+          onTouchEnd={onHandleTouchEnd}
         >
-          <div className="w-10 h-1.5 bg-gray-300 rounded-full" />
+          <div className="w-12 h-1.5 bg-gray-300 rounded-full" />
         </div>
 
         <h2 className="text-base font-bold text-gray-900 mb-4">{title}</h2>
