@@ -22,7 +22,9 @@ export function useSession() {
   }, [session?.id])
 
   const startSession = async () => {
-    const { data, error } = await supabase.from('sessions').insert({ doors_knocked: 0, conversations: 0 }).select().single()
+    const { data: authData } = await supabase.auth.getSession()
+    const userId = authData.session?.user?.id ?? null
+    const { data, error } = await supabase.from('sessions').insert({ doors_knocked: 0, conversations: 0, user_id: userId }).select().single()
     if (error) throw error
     const s = { ...data, _doors: 0, _convs: 0, _contacts: 0, _appts: 0 }
     setSession(s)
@@ -76,10 +78,14 @@ export function useSession() {
 
   // Check if there's a stale session from a previous crash (started >5 min ago, not ended)
   const checkStaleSessions = async () => {
+    const { data: authData } = await supabase.auth.getSession()
+    const userId = authData.session?.user?.id
+    if (!userId) return null
     const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
     const { data } = await supabase
       .from('sessions')
       .select('*')
+      .eq('user_id', userId)
       .is('ended_at', null)
       .lt('started_at', fiveMinAgo)
       .order('started_at', { ascending: false })

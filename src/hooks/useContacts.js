@@ -24,7 +24,9 @@ export function useContacts(filterStatus = null) {
   }, [filterStatus])
 
   const addContact = async (contact) => {
-    const { data, error } = await supabase.from('contacts').insert(contact).select().single()
+    const { data: authData } = await supabase.auth.getSession()
+    const userId = authData.session?.user?.id ?? null
+    const { data, error } = await supabase.from('contacts').insert({ ...contact, user_id: userId }).select().single()
     if (error) throw error
     return data
   }

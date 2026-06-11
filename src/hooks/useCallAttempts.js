@@ -19,7 +19,9 @@ export function useCallAttempts(contactId) {
   }
 
   const log = async (outcome, notes = null) => {
-    const entry = { contact_id: contactId, outcome, notes, attempted_at: new Date().toISOString() }
+    const { data: authData } = await supabase.auth.getSession()
+    const userId = authData.session?.user?.id ?? null
+    const entry = { contact_id: contactId, outcome, notes, attempted_at: new Date().toISOString(), user_id: userId }
     setAttempts(prev => [entry, ...prev])
     await supabase.from('call_attempts').insert(entry)
     await load()

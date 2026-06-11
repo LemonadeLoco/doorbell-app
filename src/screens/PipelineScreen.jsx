@@ -3,6 +3,7 @@ import { useContacts } from '../hooks/useContacts'
 import { StatusBadge, SourceBadge } from '../components/StatusBadge'
 import { PRODUCTS, formatDateSmart } from '../lib/constants'
 import { supabase } from '../lib/supabase'
+import { BottomSheet } from '../components/BottomSheet'
 
 const FILTERS = [
   { id: 'Alle',           label: 'Alle' },
@@ -363,54 +364,51 @@ function AddContactModal({ onClose, onSave }) {
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end" onClick={onClose}>
-      <div className="sheet-enter w-full bg-white rounded-t-2xl shadow-2xl p-5 pb-8 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="w-10 h-1 bg-gray-300 rounded mx-auto mb-4" />
-        <h2 className="text-base font-bold text-gray-900 mb-4">Kontakt hinzufügen</h2>
-        {[
-          { label: 'Name *',  key: 'name',    type: 'text', placeholder: 'Max Mustermann' },
-          { label: 'Telefon', key: 'phone',   type: 'tel',  placeholder: '+49 ...' },
-          { label: 'Adresse', key: 'address', type: 'text', placeholder: 'Musterstr. 1, 12345 Stadt' },
-        ].map(f => (
-          <label key={f.key} className="block mb-3">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{f.label}</span>
-            <input type={f.type} className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
-              value={form[f.key]} onChange={e => set(f.key, e.target.value)} placeholder={f.placeholder} />
-          </label>
-        ))}
-        {shortNameWarn && (
-          <div className="bg-amber-50 rounded-xl px-4 py-3 mb-3 flex items-center gap-3">
-            <span className="text-sm text-amber-800">Kurzer Name — möchtest du noch einen Nachnamen hinzufügen?</span>
-            <button className="pressable text-xs font-bold text-amber-600 whitespace-nowrap" onClick={handleSave}>Nein, weiter</button>
-          </div>
-        )}
-        <label className="block mb-3">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Produkt</span>
-          <select className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm bg-white focus:outline-none"
-            value={form.product} onChange={e => set('product', e.target.value)}>
-            <option value="">— wählen —</option>
-            {PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
+    <BottomSheet onClose={onClose} className="p-5 pb-8">
+      <h2 className="text-base font-bold text-gray-900 mb-4">Kontakt hinzufügen</h2>
+      {[
+        { label: 'Name *',  key: 'name',    type: 'text', placeholder: 'Max Mustermann' },
+        { label: 'Telefon', key: 'phone',   type: 'tel',  placeholder: '+49 ...' },
+        { label: 'Adresse', key: 'address', type: 'text', placeholder: 'Musterstr. 1, 12345 Stadt' },
+      ].map(f => (
+        <label key={f.key} className="block mb-3">
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{f.label}</span>
+          <input type={f.type} className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
+            value={form[f.key]} onChange={e => set(f.key, e.target.value)} placeholder={f.placeholder} />
         </label>
-        <label className="block mb-3">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Quelle</span>
-          <select className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm bg-white focus:outline-none"
-            value={form.source} onChange={e => set('source', e.target.value)}>
-            <option value="tür">Haustür-Kontakt</option>
-            <option value="anruf">Bestandskunde</option>
-          </select>
-        </label>
-        <label className="block mb-5">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Notiz</span>
-          <textarea rows={2} className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none resize-none"
-            value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Optional..." />
-        </label>
-        <button className="pressable w-full py-4 rounded-2xl font-bold text-white text-base bg-amber-400"
-          onClick={handleSave}>
-          Speichern
-        </button>
-      </div>
-    </div>
+      ))}
+      {shortNameWarn && (
+        <div className="bg-amber-50 rounded-xl px-4 py-3 mb-3 flex items-center gap-3">
+          <span className="text-sm text-amber-800">Kurzer Name — möchtest du noch einen Nachnamen hinzufügen?</span>
+          <button className="pressable text-xs font-bold text-amber-600 whitespace-nowrap" onClick={handleSave}>Nein, weiter</button>
+        </div>
+      )}
+      <label className="block mb-3">
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Produkt</span>
+        <select className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm bg-white focus:outline-none"
+          value={form.product} onChange={e => set('product', e.target.value)}>
+          <option value="">— wählen —</option>
+          {PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+      </label>
+      <label className="block mb-3">
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Quelle</span>
+        <select className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm bg-white focus:outline-none"
+          value={form.source} onChange={e => set('source', e.target.value)}>
+          <option value="tür">Haustür-Kontakt</option>
+          <option value="anruf">Bestandskunde</option>
+        </select>
+      </label>
+      <label className="block mb-5">
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Notiz</span>
+        <textarea rows={2} className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none resize-none"
+          value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Optional..." />
+      </label>
+      <button className="pressable w-full py-4 rounded-2xl font-bold text-white text-base bg-amber-400"
+        onClick={handleSave}>
+        Speichern
+      </button>
+    </BottomSheet>
   )
 }
 
@@ -469,6 +467,8 @@ function PdfImportFlow({ contacts: existingContacts, onClose, onImported }) {
 
   const importSelected = async () => {
     const toImport = extracted.filter((r, i) => r.success && selected[i])
+    const { data: authData } = await supabase.auth.getSession()
+    const userId = authData.session?.user?.id ?? null
     for (const r of toImport) {
       const d = r.data
       await supabase.from('contacts').insert({
@@ -482,6 +482,7 @@ function PdfImportFlow({ contacts: existingContacts, onClose, onImported }) {
         auftragsnummer:   d.auftragsnummer ?? null,
         source:           'anruf',
         status:           'anrufen',
+        user_id:          userId,
       })
     }
     onImported()

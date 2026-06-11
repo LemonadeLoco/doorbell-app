@@ -143,9 +143,21 @@ export function RundeScreen({ sessionHook }) {
     setSheet(null)
     try {
       haptic('medium')
+      const { data: authData } = await supabase.auth.getSession()
+      const userId = authData.session?.user?.id ?? null
       const { data: contact } = await supabase.from('contacts').insert({
-        ...data, source: 'tür', session_id: session?.id ?? null,
+        ...data, source: 'tür', session_id: session?.id ?? null, user_id: userId,
       }).select().single()
+
+      if (navigator.geolocation && contact?.id) {
+        navigator.geolocation.getCurrentPosition(
+          async (pos) => {
+            await supabase.from('contacts').update({ lat: pos.coords.latitude, lng: pos.coords.longitude }).eq('id', contact.id)
+          },
+          () => {},
+          { timeout: 5000, maximumAge: 30000 }
+        )
+      }
 
       const outcome = isTermin ? 'termin' : isWiedervorlage ? 'wiedervorlage' : 'kontakt'
       const { tapId } = await saveTap(outcome, contact?.id ?? null)
