@@ -118,3 +118,27 @@ body.sheet-open {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.3; }
 }
+
+/* Live indicator green pulsing dot */
+.live-dot {
+  width: 8px;
+  height: 8px;
+  background: #22C55E;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  animation: live-pulse 1.5s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+/* User location dot on map */
+.user-location-dot {
+  animation: pulse-location 2s ease-in-out infinite;
+}
+@keyframes pulse-location {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.7; transform: scale(1.3); }
+}

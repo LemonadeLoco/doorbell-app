@@ -22,34 +22,29 @@ export function LiveTeamFeed() {
   if (loading || activeSessions.length === 0) return null
 
   return (
-    <div>
-      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Live</p>
-      <div
-        className="flex gap-3 overflow-x-auto pb-1"
-        style={{ scrollbarWidth: 'none' }}
-      >
+    <div className="bg-white rounded-2xl px-4 py-3 shadow-sm">
+      <div className="flex items-center gap-2 mb-2.5">
+        <span className="live-dot" />
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Live</p>
+      </div>
+      <div className="flex flex-col gap-2">
         {activeSessions.map(s => {
           const durMs   = now - new Date(s.started_at).getTime()
           const isStale = durMs > 8 * 3600000
           const duration = formatDuration(s.started_at, now)
           return (
-            <div
-              key={s.id}
-              className="flex-shrink-0 bg-white rounded-2xl p-4 shadow-sm"
-              style={{ borderLeft: `4px solid ${s.color}`, minWidth: 168 }}
-            >
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <div className="w-2 h-2 rounded-full" style={{ background: s.color }} />
-                <span className="font-bold text-gray-900 text-sm">{s.displayName}</span>
-              </div>
-              <p className="text-xs text-gray-400 mb-2">{s.gebiet || '—'}</p>
-              <p className="text-sm font-semibold text-gray-700">
-                {s.doors} Türen · {s.termine} Termine
-              </p>
-              <p className="text-xs text-gray-400 mt-1">
-                seit {duration}
+            <div key={s.id} className="flex items-center gap-2 min-w-0">
+              <div
+                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                style={{ background: s.color }}
+              />
+              <span className="text-sm font-semibold text-gray-900 flex-shrink-0">{s.displayName}</span>
+              <span className="text-xs text-gray-400 flex-shrink-0">{s.gebiet || '—'}</span>
+              <span className="text-gray-200 text-xs flex-shrink-0">·</span>
+              <span className="text-xs text-gray-600 truncate">
+                {s.doors} Türen · {s.termine} Termine · {duration}
                 {isStale && <span className="text-gray-300 ml-1">(gestern?)</span>}
-              </p>
+              </span>
             </div>
           )
         })}

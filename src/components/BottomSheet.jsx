@@ -1,12 +1,11 @@
 import { useRef, useEffect } from 'react'
 
-export function BottomSheet({ onClose, children, className = '' }) {
+export function BottomSheet({ onClose, children, footer = null }) {
   const sheetRef    = useRef(null)
   const startY      = useRef(0)
   const isDragging  = useRef(false)
   const dragY       = useRef(0)
 
-  // Lock body scroll on iOS Safari
   useEffect(() => {
     const scrollY = window.scrollY
     document.body.style.overflow            = 'hidden'
@@ -59,12 +58,12 @@ export function BottomSheet({ onClose, children, className = '' }) {
     <div className="fixed inset-0 z-40 flex items-end" onClick={onClose}>
       <div
         ref={sheetRef}
-        className={`sheet-enter w-full bg-white rounded-t-2xl shadow-2xl max-h-[92vh] overflow-y-auto ${className}`}
+        className="sheet-enter w-full bg-white rounded-t-2xl shadow-2xl max-h-[92vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
-        {/* Drag handle — touch handlers here only, not on sheet content */}
+        {/* Drag handle — touch handlers here only */}
         <div
-          className="flex flex-col items-center pb-3 pt-2 cursor-grab select-none"
+          className="flex flex-col items-center pb-3 pt-2 cursor-grab select-none flex-shrink-0"
           style={{ touchAction: 'none', minHeight: 44, justifyContent: 'center' }}
           onTouchStart={onHandleTouchStart}
           onTouchMove={onHandleTouchMove}
@@ -72,7 +71,24 @@ export function BottomSheet({ onClose, children, className = '' }) {
         >
           <div className="w-12 h-1.5 bg-gray-300 rounded-full" />
         </div>
-        {children}
+
+        {/* Scrollable content */}
+        <div
+          className="overflow-y-auto flex-1 px-5"
+          style={{ paddingBottom: footer ? '16px' : 'calc(env(safe-area-inset-bottom) + 16px)' }}
+        >
+          {children}
+        </div>
+
+        {/* Sticky footer with safe-area padding */}
+        {footer && (
+          <div
+            className="px-5 bg-white border-t border-gray-100 flex-shrink-0"
+            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)', paddingTop: '12px' }}
+          >
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   )

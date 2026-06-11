@@ -13,7 +13,6 @@ export function ContactSheet({ mode, onSave, onClose, getPosition, initialAddres
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  // Lock body scroll on open — position:fixed is the only reliable way on iOS Safari
   useEffect(() => {
     const scrollY = window.scrollY
     document.body.style.overflow   = 'hidden'
@@ -38,9 +37,8 @@ export function ContactSheet({ mode, onSave, onClose, getPosition, initialAddres
       if (pos?.address) set('address', pos.address)
       setGeoLoading(false)
     }).catch(() => setGeoLoading(false))
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Touch handlers only on the drag handle — NOT on sheet content
   const onHandleTouchStart = (e) => {
     startY.current   = e.touches[0].clientY
     isDragging.current = true
@@ -90,18 +88,19 @@ export function ContactSheet({ mode, onSave, onClose, getPosition, initialAddres
   }
 
   const btnColor = isTermin ? '#10B981' : isWiedervorlage ? '#3B82F6' : '#F59E0B'
+  const btnLabel = isTermin ? 'Termin speichern' : isWiedervorlage ? 'Wiedervorlage speichern' : 'Kontakt speichern'
   const title    = isTermin ? 'Termin notieren' : isWiedervorlage ? 'Wiedervorlage' : 'Kontakt notieren'
 
   return (
     <div className="fixed inset-0 z-40 flex items-end" onClick={onClose}>
       <div
         ref={sheetRef}
-        className="sheet-enter w-full bg-white rounded-t-2xl shadow-2xl p-5 pb-8 max-h-[92vh] overflow-y-auto"
+        className="sheet-enter w-full bg-white rounded-t-2xl shadow-2xl max-h-[92vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
-        {/* Drag handle — min 44px hit area, touch handlers here only */}
+        {/* Drag handle */}
         <div
-          className="flex flex-col items-center pb-3 -mt-1 cursor-grab select-none"
+          className="flex flex-col items-center pb-3 -mt-1 cursor-grab select-none flex-shrink-0"
           style={{ touchAction: 'none', minHeight: 44, justifyContent: 'center' }}
           onTouchStart={onHandleTouchStart}
           onTouchMove={onHandleTouchMove}
@@ -110,75 +109,91 @@ export function ContactSheet({ mode, onSave, onClose, getPosition, initialAddres
           <div className="w-12 h-1.5 bg-gray-300 rounded-full" />
         </div>
 
-        <h2 className="text-base font-bold text-gray-900 mb-4">{title}</h2>
+        {/* Scrollable form content */}
+        <div
+          className="overflow-y-auto flex-1 px-5"
+          style={{ paddingBottom: '16px' }}
+        >
+          <h2 className="text-base font-bold text-gray-900 mb-4">{title}</h2>
 
-        {!isWiedervorlage && (
-          <>
-            <label className="block mb-3">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Name *</span>
-              <input autoFocus type="text" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
-                value={form.name} onChange={e => set('name', e.target.value)} placeholder="Max Mustermann" />
-            </label>
-            <label className="block mb-3">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Telefon</span>
-              <input type="tel" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
-                value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+49 ..." />
-            </label>
-          </>
-        )}
+          {!isWiedervorlage && (
+            <>
+              <label className="block mb-3">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Name *</span>
+                <input autoFocus type="text" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
+                  value={form.name} onChange={e => set('name', e.target.value)} placeholder="Max Mustermann" />
+              </label>
+              <label className="block mb-3">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Telefon</span>
+                <input type="tel" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
+                  value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+49 ..." />
+              </label>
+            </>
+          )}
 
-        <label className="block mb-3">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-            Adresse {geoLoading && <span className="normal-case text-amber-400 ml-1">📍 lädt...</span>}
-          </span>
-          <input type="text" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
-            value={form.address} onChange={e => set('address', e.target.value)} placeholder="Straße, PLZ Ort" />
-        </label>
-
-        {form.address && (
           <label className="block mb-3">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Wohnungsnummer</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              Adresse {geoLoading && <span className="normal-case text-amber-400 ml-1">📍 lädt...</span>}
+            </span>
             <input type="text" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
-              value={form.apartment} onChange={e => set('apartment', e.target.value)} placeholder="z.B. 3. OG links" />
+              value={form.address} onChange={e => set('address', e.target.value)} placeholder="Straße, PLZ Ort" />
           </label>
-        )}
 
-        {!isWiedervorlage && (
+          {form.address && (
+            <label className="block mb-3">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Wohnungsnummer</span>
+              <input type="text" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
+                value={form.apartment} onChange={e => set('apartment', e.target.value)} placeholder="z.B. 3. OG links" />
+            </label>
+          )}
+
+          {!isWiedervorlage && (
+            <label className="block mb-3">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Produkt</span>
+              <select className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400 bg-white"
+                value={form.product} onChange={e => set('product', e.target.value)}>
+                <option value="">— wählen —</option>
+                {PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </label>
+          )}
+
+          {isTermin && (
+            <label className="block mb-3">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Datum &amp; Uhrzeit</span>
+              <input type="datetime-local" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
+                value={form.appt_at} onChange={e => set('appt_at', e.target.value)} />
+            </label>
+          )}
+
+          {isWiedervorlage && (
+            <label className="block mb-3">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Wiedervorlage am (optional)</span>
+              <input type="date" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
+                value={form.followup_at} onChange={e => set('followup_at', e.target.value)} />
+            </label>
+          )}
+
           <label className="block mb-3">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Produkt</span>
-            <select className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400 bg-white"
-              value={form.product} onChange={e => set('product', e.target.value)}>
-              <option value="">— wählen —</option>
-              {PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Notiz</span>
+            <textarea rows={2} className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400 resize-none"
+              value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Optional..." />
           </label>
-        )}
+        </div>
 
-        {isTermin && (
-          <label className="block mb-3">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Datum &amp; Uhrzeit</span>
-            <input type="datetime-local" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
-              value={form.appt_at} onChange={e => set('appt_at', e.target.value)} />
-          </label>
-        )}
-
-        {isWiedervorlage && (
-          <label className="block mb-3">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Wiedervorlage am (optional)</span>
-            <input type="date" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
-              value={form.followup_at} onChange={e => set('followup_at', e.target.value)} />
-          </label>
-        )}
-
-        <label className="block mb-5">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Notiz</span>
-          <textarea rows={2} className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400 resize-none"
-            value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Optional..." />
-        </label>
-
-        <button className="pressable w-full py-4 rounded-2xl font-bold text-white text-base" style={{ background: btnColor }} onClick={handleSave}>
-          {isTermin ? 'Termin speichern' : isWiedervorlage ? 'Wiedervorlage speichern' : 'Kontakt speichern'}
-        </button>
+        {/* Sticky save button — outside scroll area, covers safe area */}
+        <div
+          className="px-5 bg-white border-t border-gray-100 flex-shrink-0"
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)', paddingTop: '12px' }}
+        >
+          <button
+            className="pressable w-full py-4 rounded-2xl font-bold text-white text-base"
+            style={{ background: btnColor }}
+            onClick={handleSave}
+          >
+            {btnLabel}
+          </button>
+        </div>
       </div>
     </div>
   )

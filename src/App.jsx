@@ -4,6 +4,7 @@ import { useSession } from './hooks/useSession'
 import { useUserSettings } from './hooks/useUserSettings'
 import { BottomNav } from './components/BottomNav'
 import { InstallGuide } from './components/InstallGuide'
+import { Toast, useToast } from './components/Toast'
 import { LoginScreen } from './screens/LoginScreen'
 import { HomeScreen } from './screens/HomeScreen'
 import { RundeScreen } from './screens/RundeScreen'
@@ -13,6 +14,22 @@ import { StatsScreen } from './screens/StatsScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { BestandskundenScreen } from './screens/BestandskundenScreen'
 
+async function autoEndStaleSessions(userId) {
+  const eightHoursAgo = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString()
+  const { data: stale } = await supabase
+    .from('sessions')
+    .select('id')
+    .is('ended_at', null)
+    .eq('user_id', userId)
+    .lt('started_at', eightHoursAgo)
+  if (!stale?.length) return false
+  await supabase
+    .from('sessions')
+    .update({ ended_at: new Date().toISOString() })
+    .in('id', stale.map(s => s.id))
+  return true
+}
+
 export default function App() {
   const [authUser, setAuthUser]           = useState(undefined)
   const [screen, setScreen]               = useState('home')
@@ -20,6 +37,7 @@ export default function App() {
   const [staleSession, setStaleSession]   = useState(null)
   const sessionHook  = useSession()
   const settingsHook = useUserSettings()
+  const { toast, show } = useToast()
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setAuthUser(data.session?.user ?? null))
@@ -27,11 +45,19 @@ export default function App() {
     return () => listener.subscription.unsubscribe()
   }, [])
 
-  // Check for stale sessions after auth
+  // On auth: auto-end sessions >8h old, then check for short-stale sessions to recover
   useEffect(() => {
     if (!authUser || sessionHook.isActive) return
-    sessionHook.checkStaleSessions().then(s => { if (s) setStaleSession(s) })
-  }, [authUser])
+    const init = async () => {
+      const wasAutoEnded = await autoEndStaleSessions(authUser.id)
+      if (wasAutoEnded) {
+        show('Runde automatisch beendet — sie lief länger als 8 Stunden.')
+      }
+      const s = await sessionHook.checkStaleSessions()
+      if (s) setStaleSession(s)
+    }
+    init()
+  }, [authUser]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (authUser === undefined) {
     return (
@@ -43,7 +69,6 @@ export default function App() {
 
   if (!authUser) return <LoginScreen />
 
-  // Stale session recovery prompt
   if (staleSession) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-gray-50">
@@ -68,7 +93,6 @@ export default function App() {
     )
   }
 
-  // Full-screen flows (no bottom nav)
   if (screen === 'contact' && selectedContact) {
     return (
       <ContactDetailScreen
@@ -112,6 +136,7 @@ export default function App() {
       </main>
       <BottomNav screen={screen} setScreen={setScreen} sessionActive={sessionHook.isActive} />
       <InstallGuide />
+      <Toast toast={toast} />
     </div>
   )
 }

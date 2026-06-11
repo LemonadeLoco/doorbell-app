@@ -18,6 +18,26 @@ const FILTERS = [
   { id: 'archiv',         label: 'Archiv' },
 ]
 
+const STATUS_LABELS = {
+  anrufen:      'Zum Anrufen',
+  kontakt:      'Kontakt',
+  termin:       'Termin',
+  verkauft:     'Verkauft',
+  wiedervorlage:'Wiedervorlage',
+  kein_int:     'Kein Interesse',
+  archiv:       'Archiv',
+}
+
+const STATUS_COLORS = {
+  anrufen:      '#3B82F6',
+  kontakt:      '#F59E0B',
+  termin:       '#10B981',
+  verkauft:     '#8B5CF6',
+  wiedervorlage:'#6366F1',
+  kein_int:     '#EF4444',
+  archiv:       '#9CA3AF',
+}
+
 function relativeTime(iso) {
   if (!iso) return null
   const diff = Date.now() - new Date(iso).getTime()
@@ -47,6 +67,8 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
   const [showImport, setShowImport]   = useState(false)
   const [compactView, setCompactView] = useState(false)
   const [showFABMenu, setShowFABMenu] = useState(false)
+  const [showIntentChooser, setShowIntentChooser] = useState(false)
+  const [intentStatus, setIntentStatus] = useState('anrufen')
   const [archivExpanded, setArchivExpanded] = useState(false)
   const [callOverlayContact, setCallOverlayContact] = useState(null)
   const { contacts, loading, addContact } = useContacts()
@@ -54,7 +76,6 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
   const today    = todayStr()
   const tomorrow = tomorrowStr()
 
-  // Count per filter pill
   const counts = useMemo(() => {
     const c = { Alle: 0, anrufen: 0, termin: 0, kontakt: 0, verkauft: 0, wiedervorlage: 0, bestandskunden: 0, archiv: 0 }
     contacts.forEach(ct => {
@@ -79,7 +100,6 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
     })
   }, [contacts, filter, search])
 
-  // Smart sort order per spec
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
       const score = (c) => {
@@ -95,7 +115,6 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
       }
       const sa = score(a), sb = score(b)
       if (sa !== sb) return sa - sb
-      // Secondary: appt_at for same-day termin, else updated_at desc
       if (a.status === 'termin' && b.status === 'termin') {
         return (a.appt_at ?? '').localeCompare(b.appt_at ?? '')
       }
@@ -111,10 +130,8 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
 
   const { urgent, active, archived } = usePipelineGroups(contacts)
   const isSectioned = filter === 'Alle' && !search.trim()
-
   const isBK = filter === 'bestandskunden'
 
-  // Expired appointments: status=termin, appt_at more than 2h in past
   const isExpired = (c) => {
     if (c.status !== 'termin' || !c.appt_at) return false
     return Date.now() - new Date(c.appt_at).getTime() > 2 * 3600000
@@ -144,7 +161,7 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
           placeholder="Suchen..." value={search} onChange={e => setSearch(e.target.value)} />
       </div>
 
-      {/* Filter pills — single scrollable row with counts */}
+      {/* Filter pills */}
       <div className="relative bg-white border-b border-gray-100">
         <div
           className="flex gap-2 px-4 py-3 overflow-x-auto"
@@ -163,7 +180,6 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
             </button>
           ))}
         </div>
-        {/* Right fade to hint scrollability */}
         <div className="absolute right-0 top-0 bottom-0 w-6 pointer-events-none" style={{ background: 'linear-gradient(to right, transparent, white)' }} />
       </div>
 
@@ -176,7 +192,7 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
               <div className="text-center mt-16">
                 <p className="text-4xl mb-3">📭</p>
                 <p className="text-gray-500 font-semibold text-sm">Noch keine Kontakte</p>
-                <button className="mt-4 px-5 py-2.5 bg-amber-400 text-white text-sm font-bold rounded-xl pressable" onClick={() => setShowAdd(true)}>+ Kontakt hinzufügen</button>
+                <button className="mt-4 px-5 py-2.5 bg-amber-400 text-white text-sm font-bold rounded-xl pressable" onClick={() => { setIntentStatus('anrufen'); setShowIntentChooser(true) }}>+ Kontakt hinzufügen</button>
               </div>
             ) : (
               <>
@@ -222,7 +238,7 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
             <p className="text-gray-500 font-semibold text-sm">Noch keine Kontakte</p>
             {isBK
               ? <button className="mt-4 px-5 py-2.5 bg-purple-500 text-white text-sm font-bold rounded-xl pressable" onClick={onAddBestandskunde}>+ Bestandskunden hinzufügen</button>
-              : <button className="mt-4 px-5 py-2.5 bg-amber-400 text-white text-sm font-bold rounded-xl pressable" onClick={() => setShowAdd(true)}>+ Kontakt hinzufügen</button>
+              : <button className="mt-4 px-5 py-2.5 bg-amber-400 text-white text-sm font-bold rounded-xl pressable" onClick={() => { setIntentStatus('anrufen'); setShowIntentChooser(true) }}>+ Kontakt hinzufügen</button>
             }
           </div>
         ) : compactView ? (
@@ -253,7 +269,7 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
             </button>
             <button
               className="pressable flex items-center gap-2 bg-white rounded-2xl px-4 py-3 shadow-lg text-sm font-semibold text-gray-700"
-              onClick={() => { setShowFABMenu(false); setShowAdd(true) }}
+              onClick={() => { setShowFABMenu(false); setShowIntentChooser(true) }}
             >
               ✏️ Kontakt manuell hinzufügen
             </button>
@@ -267,9 +283,22 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
         </button>
       </div>
 
+      {/* Intent chooser — appears before AddContactModal */}
+      {showIntentChooser && (
+        <IntentChooser
+          onClose={() => setShowIntentChooser(false)}
+          onSelect={(status) => {
+            setIntentStatus(status)
+            setShowIntentChooser(false)
+            setShowAdd(true)
+          }}
+        />
+      )}
+
       {showAdd && (
         <AddContactModal
           onClose={() => setShowAdd(false)}
+          initialStatus={intentStatus}
           onSave={async (data) => {
             await addContact(data)
             setShowAdd(false)
@@ -291,6 +320,45 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
           onClose={() => setCallOverlayContact(null)}
         />
       )}
+    </div>
+  )
+}
+
+// Intent chooser action sheet
+function IntentChooser({ onSelect, onClose }) {
+  const options = [
+    { icon: '🔎', label: 'Interessent / Lead',       desc: 'Potenzielle Neukundschaft',    status: 'anrufen' },
+    { icon: '🤝', label: 'Kontakt aufgenommen',       desc: 'Gespräch oder Kontakt notiert', status: 'kontakt' },
+    { icon: '📅', label: 'Termin vereinbart',         desc: 'Fixer Beratungstermin',         status: 'termin' },
+  ]
+  return (
+    <div className="fixed inset-0 z-40 flex items-end" onClick={onClose}>
+      <div
+        className="sheet-enter w-full bg-white rounded-t-2xl shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex flex-col items-center pb-3 pt-2">
+          <div className="w-12 h-1.5 bg-gray-300 rounded-full" />
+        </div>
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-5 pb-3">
+          Neuen Eintrag erstellen
+        </p>
+        {options.map(opt => (
+          <button
+            key={opt.status}
+            className="pressable flex items-center gap-4 w-full px-5 py-4 border-b border-gray-50 last:border-0"
+            onClick={() => onSelect(opt.status)}
+          >
+            <span className="text-2xl w-8 text-center flex-shrink-0">{opt.icon}</span>
+            <div className="flex-1 text-left">
+              <p className="font-semibold text-gray-900 text-sm">{opt.label}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{opt.desc}</p>
+            </div>
+            <span className="text-gray-300 text-lg">›</span>
+          </button>
+        ))}
+        <div style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }} />
+      </div>
     </div>
   )
 }
@@ -383,7 +451,6 @@ function ContactCard({ contact: c, onSelect, showQuickDial, initials, avatarColo
       className="relative overflow-hidden rounded-2xl"
       style={borderColor ? { borderLeft: `3px solid ${borderColor}`, opacity: sectionType === 'archived' ? 0.6 : 1 } : {}}
     >
-      {/* Swipe-to-call reveal */}
       <div
         className="absolute left-0 top-0 bottom-0 flex items-center justify-center bg-green-500 text-white text-xs font-bold rounded-l-2xl"
         style={{ width: Math.max(0, swipeX), transition: swiping ? 'none' : 'width 0.2s ease-out' }}
@@ -466,8 +533,13 @@ function SectionHeader({ title, count, color }) {
   )
 }
 
-function AddContactModal({ onClose, onSave }) {
-  const [form, setForm] = useState({ name: '', phone: '', address: '', product: '', source: 'tür', notes: '', status: 'anrufen' })
+function AddContactModal({ onClose, onSave, initialStatus = 'anrufen' }) {
+  const [form, setForm] = useState({
+    name: '', phone: '', address: '', product: '',
+    source: 'tür', notes: '',
+    status: initialStatus,
+    appt_at: '',
+  })
   const [shortNameWarn, setShortNameWarn] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -477,12 +549,43 @@ function AddContactModal({ onClose, onSave }) {
       setShortNameWarn(true)
       return
     }
-    onSave({ ...form, name: form.name.trim() })
+    const data = { ...form, name: form.name.trim() }
+    if (form.status === 'termin' && form.appt_at) {
+      data.appt_at = new Date(form.appt_at).toISOString()
+    } else {
+      data.appt_at = null
+    }
+    onSave(data)
   }
 
+  const statusColor = STATUS_COLORS[form.status] ?? '#F59E0B'
+  const statusLabel = STATUS_LABELS[form.status] ?? form.status
+
   return (
-    <BottomSheet onClose={onClose} className="p-5 pb-8">
+    <BottomSheet
+      onClose={onClose}
+      footer={
+        <button
+          className="pressable w-full py-4 rounded-2xl font-bold text-white text-base bg-amber-400"
+          onClick={handleSave}
+        >
+          Speichern
+        </button>
+      }
+    >
       <h2 className="text-base font-bold text-gray-900 mb-4">Kontakt hinzufügen</h2>
+
+      {/* Locked status chip */}
+      <div className="mb-4">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Status</p>
+        <span
+          className="inline-block px-3 py-1.5 rounded-full text-xs font-bold text-white"
+          style={{ background: statusColor }}
+        >
+          {statusLabel}
+        </span>
+      </div>
+
       {[
         { label: 'Name *',  key: 'name',    type: 'text', placeholder: 'Max Mustermann' },
         { label: 'Telefon', key: 'phone',   type: 'tel',  placeholder: '+49 ...' },
@@ -494,12 +597,14 @@ function AddContactModal({ onClose, onSave }) {
             value={form[f.key]} onChange={e => set(f.key, e.target.value)} placeholder={f.placeholder} />
         </label>
       ))}
+
       {shortNameWarn && (
         <div className="bg-amber-50 rounded-xl px-4 py-3 mb-3 flex items-center gap-3">
           <span className="text-sm text-amber-800">Kurzer Name — möchtest du noch einen Nachnamen hinzufügen?</span>
           <button className="pressable text-xs font-bold text-amber-600 whitespace-nowrap" onClick={handleSave}>Nein, weiter</button>
         </div>
       )}
+
       <label className="block mb-3">
         <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Produkt</span>
         <select className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm bg-white focus:outline-none"
@@ -508,23 +613,35 @@ function AddContactModal({ onClose, onSave }) {
           {PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
       </label>
+
       <label className="block mb-3">
         <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Quelle</span>
         <select className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm bg-white focus:outline-none"
           value={form.source} onChange={e => set('source', e.target.value)}>
           <option value="tür">Haustür-Kontakt</option>
-          <option value="anruf">Bestandskunde</option>
+          <option value="anruf">Anruf / Bestandskunde</option>
+          <option value="messe">Messe</option>
+          <option value="markt">Markt / Veranstaltung</option>
+          <option value="interessent">Eigeninitiative</option>
+          <option value="aroundhome">AroundHome</option>
         </select>
       </label>
-      <label className="block mb-5">
+
+      {/* Appointment time shown for termin status */}
+      {form.status === 'termin' && (
+        <label className="block mb-3">
+          <span className="text-xs font-semibold text-red-500 uppercase tracking-wide">Datum &amp; Uhrzeit *</span>
+          <input type="datetime-local"
+            className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
+            value={form.appt_at} onChange={e => set('appt_at', e.target.value)} />
+        </label>
+      )}
+
+      <label className="block mb-2">
         <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Notiz</span>
         <textarea rows={2} className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none resize-none"
           value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Optional..." />
       </label>
-      <button className="pressable w-full py-4 rounded-2xl font-bold text-white text-base bg-amber-400"
-        onClick={handleSave}>
-        Speichern
-      </button>
     </BottomSheet>
   )
 }
@@ -532,7 +649,7 @@ function AddContactModal({ onClose, onSave }) {
 // ─── PDF Import Flow ──────────────────────────────────────────────────────────
 
 function PdfImportFlow({ contacts: existingContacts, onClose, onImported }) {
-  const [stage, setStage]       = useState('idle') // idle | loading | review
+  const [stage, setStage]       = useState('idle')
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [extracted, setExtracted] = useState([])
   const [selected, setSelected] = useState({})
@@ -563,7 +680,6 @@ function PdfImportFlow({ contacts: existingContacts, onClose, onImported }) {
       setProgress({ done: i + 1, total: files.length })
     }
 
-    // Check for duplicates
     const withDupes = results.map(r => {
       if (!r.success || !r.data?.telefon) return r
       const dupe = existingContacts.find(c => c.phone && c.phone.replace(/\s/g,'') === r.data.telefon.replace(/\s/g,''))

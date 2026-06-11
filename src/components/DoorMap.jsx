@@ -6,10 +6,8 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import 'leaflet.markercluster'
 import { supabase } from '../lib/supabase'
 
-// Prevent 404 for default icon (we use custom divIcons throughout)
 delete L.Icon.Default.prototype._getIconUrl
 
-// Ensure the markercluster plugin can find L (needed for some Vite bundling modes)
 if (typeof window !== 'undefined') window.L = L
 
 const MUNICH = [48.1351, 11.582]
@@ -29,7 +27,7 @@ const OUTCOME_LABELS = {
   termin:        'Termin',
   kontakt:       'Kontakt',
   gesprach:      'Gespräch',
-  nicht_da:      'Nicht da',
+  nicht_da:      'Niemand da',
   kein_int:      'Kein Interesse',
   kein_zugang:   'Kein Zugang',
   wiedervorlage: 'Wiedervorlage',
@@ -58,7 +56,6 @@ function makeLayerGroup() {
   if (typeof L.markerClusterGroup === 'function') {
     return L.markerClusterGroup({ maxClusterRadius: 40, showCoverageOnHover: false })
   }
-  // Fallback if markercluster plugin didn't load
   return L.layerGroup()
 }
 
@@ -89,15 +86,19 @@ export function DoorMap({ onClose, embedded = false }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
   const layerRef = useRef(null)
+  const userMarkerRef = useRef(null)
+  const userLatLngRef = useRef(null)
 
   const [taps, setTaps] = useState([])
   const [profileMap, setProfileMap] = useState({})
   const [allRepIds, setAllRepIds] = useState([])
   const [loading, setLoading] = useState(true)
-  const [tapCount, setTapCount] = useState(null) // null = not loaded yet
+  const [tapCount, setTapCount] = useState(null)
   const [dateRange, setDateRange] = useState('30d')
   const [hiddenOutcomes, setHiddenOutcomes] = useState(new Set())
   const [hiddenReps, setHiddenReps] = useState(new Set())
+  const [mapReady, setMapReady] = useState(false)
+  const [hasUserLocation, setHasUserLocation] = useState(false)
 
   // Init map once on mount
   useEffect(() => {
@@ -109,15 +110,53 @@ export function DoorMap({ onClose, embedded = false }) {
       maxZoom: 19,
     }).addTo(map)
     mapRef.current = map
-    return () => { map.remove(); mapRef.current = null }
+    setMapReady(true)
+    return () => { map.remove(); mapRef.current = null; setMapReady(false) }
   }, [])
+
+  // Fly to user location once map is ready
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords
+        userLatLngRef.current = [latitude, longitude]
+        setHasUserLocation(true)
+        mapRef.current.flyTo([latitude, longitude], 15, { duration: 1 })
+
+        if (userMarkerRef.current) {
+          try { userMarkerRef.current.remove() } catch (_) {}
+        }
+        userMarkerRef.current = L.circleMarker([latitude, longitude], {
+          radius: 8,
+          fillColor: '#3B82F6',
+          color: '#ffffff',
+          weight: 3,
+          opacity: 1,
+          fillOpacity: 1,
+          className: 'user-location-dot',
+        })
+          .bindTooltip('Mein Standort', { permanent: false })
+          .addTo(mapRef.current)
+      },
+      () => {
+        // Permission denied — stay at Munich center
+        mapRef.current.setView(MUNICH, 12)
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    )
+  }, [mapReady]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const centerOnUser = () => {
+    if (!mapRef.current || !userLatLngRef.current) return
+    mapRef.current.flyTo(userLatLngRef.current, 16, { duration: 0.8 })
+  }
 
   // Load data
   const load = useCallback(async () => {
     setLoading(true)
     const cutoff = dateCutoff(dateRange)
 
-    // Query door_taps with GPS data — no contact join to keep query simple
     const [tapRes, profRes] = await Promise.all([
       supabase
         .from('door_taps')
@@ -136,7 +175,6 @@ export function DoorMap({ onClose, embedded = false }) {
     const rawTaps = tapRes.data ?? []
     setTapCount(rawTaps.length)
 
-    // Try to resolve session → user_id (non-critical, fails gracefully)
     let sessUserMap = {}
     const sessionIds = [...new Set(rawTaps.map(t => t.session_id).filter(Boolean))]
     if (sessionIds.length > 0) {
@@ -229,18 +267,43 @@ export function DoorMap({ onClose, embedded = false }) {
         </div>
       )}
 
-      {/* Leaflet map */}
-      <div ref={containerRef} style={{ flex: 1, minHeight: 0 }} />
+      {/* Map + floating "Zu mir" button */}
+      <div className="relative" style={{ flex: 1, minHeight: 0 }}>
+        <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+        {hasUserLocation && (
+          <button
+            onClick={centerOnUser}
+            className="pressable absolute z-[1000] right-4 bottom-4 bg-white rounded-full shadow-lg border border-gray-200 flex items-center justify-center"
+            style={{ width: 44, height: 44 }}
+            aria-label="Zu meinem Standort"
+          >
+            <span className="text-blue-500 text-lg leading-none">◎</span>
+          </button>
+        )}
+      </div>
 
-      {/* Filter strip */}
-      <div className="bg-white border-t border-gray-100 shrink-0 overflow-x-auto">
-        <div className="flex gap-1.5 items-center px-3 py-2.5" style={{ width: 'max-content' }}>
+      {/* Filter strip — safe-area aware */}
+      <div
+        className="bg-white border-t border-gray-100 shrink-0"
+        style={{
+          paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)',
+          paddingLeft: 'env(safe-area-inset-left)',
+          paddingRight: 'env(safe-area-inset-right)',
+        }}
+      >
+        <div
+          className="flex gap-1.5 items-center px-3 pt-2.5 pb-1 overflow-x-auto"
+          style={{ scrollbarWidth: 'none', width: 'max-content', maxWidth: '100%' }}
+        >
           {[['7d', '7 Tage'], ['30d', '30 Tage'], ['all', 'Alles']].map(([id, label]) => (
             <button
               key={id}
               onClick={() => setDateRange(id)}
-              className="px-3 py-1.5 rounded-full text-xs font-semibold pressable"
-              style={dateRange === id ? { background: '#F59E0B', color: '#fff' } : { background: '#F3F4F6', color: '#6B7280' }}
+              className="px-3 rounded-full text-xs font-semibold pressable flex-shrink-0"
+              style={{
+                minHeight: 44,
+                ...(dateRange === id ? { background: '#F59E0B', color: '#fff' } : { background: '#F3F4F6', color: '#6B7280' })
+              }}
             >
               {label}
             </button>
@@ -255,8 +318,11 @@ export function DoorMap({ onClose, embedded = false }) {
               <button
                 key={outcome}
                 onClick={() => toggleOutcome(outcome)}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-semibold pressable"
-                style={hidden ? { background: '#F3F4F6', color: '#9CA3AF' } : { background: color + '25', color }}
+                className="flex items-center gap-1 px-2.5 rounded-full text-xs font-semibold pressable flex-shrink-0"
+                style={{
+                  minHeight: 44,
+                  ...(hidden ? { background: '#F3F4F6', color: '#9CA3AF' } : { background: color + '25', color })
+                }}
               >
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ background: hidden ? '#D1D5DB' : color }} />
                 {OUTCOME_LABELS[outcome]}
@@ -276,8 +342,11 @@ export function DoorMap({ onClose, embedded = false }) {
                   <button
                     key={id}
                     onClick={() => toggleRep(id)}
-                    className="px-2.5 py-1.5 rounded-full text-xs font-semibold pressable"
-                    style={hidden ? { background: '#F3F4F6', color: '#9CA3AF' } : { background: color + '25', color }}
+                    className="px-2.5 rounded-full text-xs font-semibold pressable flex-shrink-0"
+                    style={{
+                      minHeight: 44,
+                      ...(hidden ? { background: '#F3F4F6', color: '#9CA3AF' } : { background: color + '25', color })
+                    }}
                   >
                     {rep.display_name}
                   </button>

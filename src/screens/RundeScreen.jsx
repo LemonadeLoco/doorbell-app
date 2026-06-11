@@ -6,38 +6,49 @@ import { reverseGeocode } from '../lib/geocode'
 import { supabase } from '../lib/supabase'
 import { OFFLINE_TAPS_KEY } from '../lib/constants'
 
-// Small haptic pulse
 const haptic = (type = 'light') => {
   if (!navigator.vibrate) return
   navigator.vibrate({ light: 10, medium: 25, heavy: 50 }[type] ?? 10)
 }
 
+function formatDurationLabel(secs) {
+  const h = Math.floor(secs / 3600)
+  const m = Math.floor((secs % 3600) / 60)
+  if (h > 0) return `${h}h ${m}min`
+  if (m > 0) return `${m}min`
+  return 'gerade gestartet'
+}
+
 export function RundeScreen({ sessionHook }) {
   const {
-    session, isActive, formatElapsed,
+    session, isActive, elapsed, formatElapsed,
     startSession, endSession,
     incrementDoors, incrementConvs, incrementContacts, incrementAppts,
     decrementDoors, decrementConvs, decrementContacts, decrementAppts,
   } = sessionHook
 
-  const [sheet, setSheet]         = useState(null) // null | 'kontakt' | 'termin' | 'wiedervorlage'
+  const [sheet, setSheet]         = useState(null) // null | 'kontakt' | 'termin' | 'wiedervorlage' | 'nie_wieder'
+  const [nieWiederNote, setNieWiederNote] = useState('')
   const [showStartModal, setShowStartModal] = useState(false)
   const [gebietInput, setGebietInput]       = useState('')
   const [gebieteOptions, setGebieteOptions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
-  const [tapToast, setTapToast]   = useState(null) // { msg, address, loading, tapId, contactId, outcome }
+  const [tapToast, setTapToast]   = useState(null)
   const toastDismissTimer = useRef(null)
-  const [doorKey, setDoorKey]     = useState(0)    // key change triggers counter animation
+  const [doorKey, setDoorKey]     = useState(0)
   const [convKey, setConvKey]     = useState(0)
   const [contactKey, setContactKey] = useState(0)
   const [apptKey, setApptKey]     = useState(0)
   const [offlineCount, setOfflineCount] = useState(0)
   const [isOnline, setIsOnline]   = useState(navigator.onLine)
-  const [cooldowns, setCooldowns] = useState({}) // outcome -> disabled until
+  const [cooldowns, setCooldowns] = useState({})
   const undoTimer = useRef(null)
-  const lastTapTime = useRef({})
-  const { toast, show }           = useToast()
+  const endSessionRef = useRef(endSession)
+  const { toast, show } = useToast()
   const { getPosition }           = useGPS()
+
+  // Keep endSession ref current so timeout callback always calls latest version
+  useEffect(() => { endSessionRef.current = endSession }, [endSession])
 
   useEffect(() => {
     const on  = () => { setIsOnline(true);  syncOffline() }
@@ -52,6 +63,32 @@ export function RundeScreen({ sessionHook }) {
     setOfflineCount(raw ? JSON.parse(raw).length : 0)
   }, [])
 
+  // Request notification permission when session starts, and schedule 8h auto-end
+  useEffect(() => {
+    if (!isActive || !session?.started_at) return
+
+    if (Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+
+    const elapsed = Date.now() - new Date(session.started_at).getTime()
+    const remaining = 8 * 60 * 60 * 1000 - elapsed
+    if (remaining <= 0) return
+
+    const timer = setTimeout(async () => {
+      if (Notification.permission === 'granted') {
+        new Notification('Doorbell', {
+          body: 'Deine Runde wurde automatisch beendet (8h).',
+          icon: '/icons/icon-192.png',
+        })
+      }
+      show('Runde automatisch beendet — 8 Stunden erreicht.')
+      await endSessionRef.current()
+    }, remaining)
+
+    return () => clearTimeout(timer)
+  }, [session?.id, isActive]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const syncOffline = async () => {
     try {
       const raw = localStorage.getItem(OFFLINE_TAPS_KEY)
@@ -64,11 +101,12 @@ export function RundeScreen({ sessionHook }) {
     } catch {}
   }
 
-  const saveTap = async (outcome, contactId = null) => {
+  const saveTap = async (outcome, contactId = null, note = null) => {
     const tapData = {
       session_id:  session?.id ?? null,
       outcome,
       contact_id:  contactId,
+      note:        note ?? null,
       tapped_at:   new Date().toISOString(),
       lat: null, lng: null, address: null,
     }
@@ -85,7 +123,6 @@ export function RundeScreen({ sessionHook }) {
     const { data } = await supabase.from('door_taps').insert(tapData).select('id').single()
     const tapId = data?.id
 
-    // Get GPS + address in background
     if (navigator.geolocation && tapId) {
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
@@ -111,8 +148,21 @@ export function RundeScreen({ sessionHook }) {
 
     const { tapId } = await saveTap(outcome, extra.contactId ?? null)
 
-    // Show GPS toast + undo — auto-dismiss after 5s
     setTapToast({ outcome, tapId, contactId: extra.contactId ?? null, address: null, loading: !!tapId })
+    clearTimeout(toastDismissTimer.current)
+    toastDismissTimer.current = setTimeout(() => setTapToast(null), 5000)
+  }
+
+  const handleNieWiederSave = async (note) => {
+    setSheet(null)
+    setNieWiederNote('')
+    haptic('medium')
+
+    incrementDoors(); setDoorKey(k => k + 1)
+
+    const { tapId } = await saveTap('nie_wieder', null, note)
+
+    setTapToast({ outcome: 'nie_wieder', tapId, contactId: null, address: null, loading: !!tapId })
     clearTimeout(toastDismissTimer.current)
     toastDismissTimer.current = setTimeout(() => setTapToast(null), 5000)
   }
@@ -122,16 +172,13 @@ export function RundeScreen({ sessionHook }) {
     clearTimeout(undoTimer.current)
     clearTimeout(toastDismissTimer.current)
 
-    // Delete tap
     if (tapToast.tapId) {
       await supabase.from('door_taps').delete().eq('id', tapToast.tapId)
     }
-    // Delete contact if one was created
     if (tapToast.contactId) {
       await supabase.from('contacts').delete().eq('id', tapToast.contactId)
     }
 
-    // Undo counters
     decrementDoors(); setDoorKey(k => k + 1)
     if (tapToast.outcome === 'gesprach')    { decrementConvs(); setConvKey(k => k + 1) }
     if (['kontakt','termin','wiedervorlage'].includes(tapToast.outcome)) { decrementContacts(); setContactKey(k => k + 1) }
@@ -142,7 +189,7 @@ export function RundeScreen({ sessionHook }) {
   }
 
   const handleSaveContact = async (data) => {
-    const isTermin       = sheet === 'termin'
+    const isTermin        = sheet === 'termin'
     const isWiedervorlage = sheet === 'wiedervorlage'
     setSheet(null)
     try {
@@ -214,7 +261,8 @@ export function RundeScreen({ sessionHook }) {
             onClick={() => setShowStartModal(false)}
           >
             <div
-              className="bg-white rounded-t-3xl px-6 pt-6 pb-10 w-full"
+              className="bg-white rounded-t-3xl px-6 pt-6 w-full"
+              style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 24px)' }}
               onClick={e => e.stopPropagation()}
             >
               <h2 className="text-lg font-extrabold text-gray-900 mb-5">Neue Runde starten</h2>
@@ -270,14 +318,20 @@ export function RundeScreen({ sessionHook }) {
   const contacts = session._contacts ?? 0
   const appts    = session._appts    ?? 0
 
+  const timerColor = elapsed >= 8 * 3600
+    ? 'text-red-400'
+    : elapsed >= 7 * 3600
+    ? 'text-amber-400'
+    : 'text-gray-500'
+
   const outcomes = [
-    { label: 'Nicht da',        sub: 'GPS auto ✓',        bg: '#E5E7EB', text: '#374151', icon: '🚪', outcome: 'nicht_da' },
-    { label: 'Kein Zugang',     sub: 'Klingel / Tor',     bg: '#F3F4F6', text: '#4B5563', icon: '🔒', outcome: 'kein_zugang' },
-    { label: 'Kein Interesse',  sub: 'Direkt notieren',   bg: '#FEE2E2', text: '#991B1B', icon: '✖',  outcome: 'kein_int' },
-    { label: 'Gespräch geführt',sub: 'Zählt als Gespräch',bg: '#DBEAFE', text: '#1E40AF', icon: '💬', outcome: 'gesprach' },
-    { label: 'Wiedervorlage',   sub: 'Kommt wieder in Frage', bg: '#EFF6FF', text: '#1D4ED8', icon: '📅', outcome: 'wiedervorlage', sheet: 'wiedervorlage' },
-    { label: 'Kontakt notiert', sub: 'Formular öffnen',   bg: '#FEF3C7', text: '#92400E', icon: '📋', outcome: 'kontakt',      sheet: 'kontakt' },
-    { label: 'Termin gesetzt',  sub: 'Mit Datum & Zeit',  bg: '#D1FAE5', text: '#065F46', icon: '📅', outcome: 'termin',       sheet: 'termin' },
+    { label: 'Niemand aufgemacht', sub: 'GPS auto ✓',              bg: '#E5E7EB', text: '#374151', icon: '🚪', outcome: 'nicht_da' },
+    { label: 'Kein Interesse',     sub: 'Direkt notieren',         bg: '#FEE2E2', text: '#991B1B', icon: '✖',  outcome: 'kein_int' },
+    { label: 'Gespräch geführt',   sub: 'Zählt als Gespräch',      bg: '#DBEAFE', text: '#1E40AF', icon: '💬', outcome: 'gesprach' },
+    { label: 'Wiedervorlage',      sub: 'Kommt wieder in Frage',   bg: '#EFF6FF', text: '#1D4ED8', icon: '🔄', outcome: 'wiedervorlage', sheet: 'wiedervorlage' },
+    { label: 'Kontakt notiert',    sub: 'Formular öffnen',         bg: '#FEF3C7', text: '#92400E', icon: '📋', outcome: 'kontakt',       sheet: 'kontakt' },
+    { label: 'Termin gesetzt',     sub: 'Mit Datum & Zeit',        bg: '#D1FAE5', text: '#065F46', icon: '📅', outcome: 'termin',        sheet: 'termin' },
+    { label: 'Nicht nochmal klingeln', sub: 'Pflichtnotiz erforderlich', bg: '#7F1D1D', text: '#FFFFFF', icon: '🚫', outcome: 'nie_wieder', sheet: 'nie_wieder' },
   ]
 
   const toastText = tapToast?.loading
@@ -289,7 +343,7 @@ export function RundeScreen({ sessionHook }) {
   return (
     <div className="flex flex-col min-h-screen bg-gray-900 pb-24">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 pt-5 pb-3">
+      <div className="flex items-center justify-between px-5 pt-5 pb-2">
         <div className="flex items-center gap-2">
           <span className="pulse-dot w-2.5 h-2.5 rounded-full bg-red-500 inline-block" />
           <span className="text-white text-sm font-semibold">Runde läuft</span>
@@ -302,8 +356,13 @@ export function RundeScreen({ sessionHook }) {
         <span className="text-white font-mono text-sm bg-gray-800 px-3 py-1 rounded-full">{formatElapsed()}</span>
       </div>
 
+      {/* Session duration label */}
+      <p className={`text-center text-xs ${timerColor} pb-1`}>
+        Runde läuft seit {formatDurationLabel(elapsed)}
+      </p>
+
       {/* Door counter */}
-      <div className="text-center py-5">
+      <div className="text-center py-4">
         <p key={doorKey} className="text-8xl font-black text-white leading-none counter-pop">{doors}</p>
         <p className="text-gray-400 text-xs font-semibold uppercase tracking-widest mt-1">Türen</p>
       </div>
@@ -334,7 +393,6 @@ export function RundeScreen({ sessionHook }) {
               disabled={onCooldown}
               onClick={() => {
                 haptic('light')
-                // 600ms cooldown per button
                 setCooldowns(prev => ({ ...prev, [o.outcome]: Date.now() + 600 }))
                 setTimeout(() => setCooldowns(prev => ({ ...prev, [o.outcome]: 0 })), 600)
                 if (o.sheet) setSheet(o.sheet)
@@ -356,7 +414,7 @@ export function RundeScreen({ sessionHook }) {
         Runde beenden
       </button>
 
-      {/* GPS + Undo toast — position:fixed so it can't be clipped by parent overflow */}
+      {/* GPS + Undo toast */}
       {tapToast && (
         <div
           className="tap-toast-in"
@@ -382,7 +440,8 @@ export function RundeScreen({ sessionHook }) {
         </div>
       )}
 
-      {sheet && (
+      {/* Standard contact/termin/wiedervorlage sheets */}
+      {sheet && sheet !== 'nie_wieder' && (
         <ContactSheet
           mode={sheet}
           onSave={handleSaveContact}
@@ -390,6 +449,57 @@ export function RundeScreen({ sessionHook }) {
           getPosition={getPosition}
         />
       )}
+
+      {/* "Nicht nochmal klingeln" — non-dismissible required-note form */}
+      {sheet === 'nie_wieder' && (
+        <div className="fixed inset-0 z-40 flex items-end" style={{ background: 'rgba(0,0,0,0.6)' }}>
+          <div
+            className="sheet-enter w-full bg-white rounded-t-2xl shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header row — Abbrechen left, title center */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <button
+                className="pressable text-gray-400 text-sm font-medium"
+                onClick={() => { setSheet(null); setNieWiederNote('') }}
+              >
+                Abbrechen
+              </button>
+              <h2 className="text-sm font-bold text-gray-900">Warum nie wieder klingeln?</h2>
+              <div style={{ width: 72 }} />
+            </div>
+
+            <div className="px-5 pt-4 pb-3">
+              <textarea
+                rows={4}
+                autoFocus
+                className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-red-400 resize-none"
+                placeholder="z.B. Sehr aggressiver Bewohner / Gewerbe / Kein Eigenheimbesitzer"
+                value={nieWiederNote}
+                onChange={e => setNieWiederNote(e.target.value)}
+              />
+            </div>
+
+            <div
+              className="px-5"
+              style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
+            >
+              <button
+                className="pressable w-full py-4 rounded-2xl font-bold text-base"
+                style={{
+                  background: nieWiederNote.trim().length >= 5 ? '#7F1D1D' : '#D1D5DB',
+                  color: nieWiederNote.trim().length >= 5 ? '#fff' : '#9CA3AF',
+                }}
+                disabled={nieWiederNote.trim().length < 5}
+                onClick={() => handleNieWiederSave(nieWiederNote.trim())}
+              >
+                Markieren
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Toast toast={toast} />
     </div>
   )
