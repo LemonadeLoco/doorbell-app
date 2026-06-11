@@ -9,6 +9,9 @@ import { supabase } from '../lib/supabase'
 // Prevent 404 for default icon (we use custom divIcons throughout)
 delete L.Icon.Default.prototype._getIconUrl
 
+// Ensure the markercluster plugin can find L (needed for some Vite bundling modes)
+if (typeof window !== 'undefined') window.L = L
+
 const MUNICH = [48.1351, 11.582]
 
 const OUTCOME_COLORS = {
@@ -51,6 +54,14 @@ function nieWiederIcon() {
   })
 }
 
+function makeLayerGroup() {
+  if (typeof L.markerClusterGroup === 'function') {
+    return L.markerClusterGroup({ maxClusterRadius: 40, showCoverageOnHover: false })
+  }
+  // Fallback if markercluster plugin didn't load
+  return L.layerGroup()
+}
+
 function dateCutoff(range) {
   if (range === '7d')  return new Date(Date.now() - 7 * 86400000).toISOString()
   if (range === '30d') return new Date(Date.now() - 30 * 86400000).toISOString()
@@ -64,27 +75,26 @@ function buildPopupHtml(tap, repName) {
     day: '2-digit', month: '2-digit', year: '2-digit',
     hour: '2-digit', minute: '2-digit',
   })
-  const contactLine = tap.contactName
-    ? `<p style="margin:4px 0 0;color:#6B7280;font-size:11px">→ ${tap.contactName}</p>` : ''
   const nieNote = tap.outcome === 'nie_wieder' && tap.notes
     ? `<p style="margin:4px 0 0;color:#991B1B;font-size:11px">🚫 ${tap.notes}</p>` : ''
   return `<div style="min-width:160px;font-family:-apple-system,system-ui,sans-serif;font-size:13px;line-height:1.4">
     <p style="font-weight:700;color:#111;margin:0 0 3px">${tap.address ?? '—'}</p>
     <p style="margin:0;color:${color};font-weight:600">${label}</p>
     <p style="margin:2px 0 0;color:#9CA3AF;font-size:11px">${repName ? repName + ' · ' : ''}${time}</p>
-    ${contactLine}${nieNote}
+    ${nieNote}
   </div>`
 }
 
 export function DoorMap({ onClose, embedded = false }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
-  const clusterRef = useRef(null)
+  const layerRef = useRef(null)
 
   const [taps, setTaps] = useState([])
   const [profileMap, setProfileMap] = useState({})
   const [allRepIds, setAllRepIds] = useState([])
   const [loading, setLoading] = useState(true)
+  const [tapCount, setTapCount] = useState(null) // null = not loaded yet
   const [dateRange, setDateRange] = useState('30d')
   const [hiddenOutcomes, setHiddenOutcomes] = useState(new Set())
   const [hiddenReps, setHiddenReps] = useState(new Set())
@@ -107,11 +117,13 @@ export function DoorMap({ onClose, embedded = false }) {
     setLoading(true)
     const cutoff = dateCutoff(dateRange)
 
+    // Query door_taps with GPS data — no contact join to keep query simple
     const [tapRes, profRes] = await Promise.all([
       supabase
         .from('door_taps')
-        .select('id, lat, lng, outcome, tapped_at, address, notes, session_id, contact:contact_id(name)')
+        .select('id, lat, lng, outcome, tapped_at, address, notes, session_id')
         .not('lat', 'is', null)
+        .not('lng', 'is', null)
         .gte('tapped_at', cutoff)
         .order('tapped_at', { ascending: false })
         .limit(2000),
@@ -121,19 +133,24 @@ export function DoorMap({ onClose, embedded = false }) {
     const pMap = {}
     ;(profRes.data ?? []).forEach(p => { pMap[p.id] = p })
 
-    const sessionIds = [...new Set((tapRes.data ?? []).map(t => t.session_id).filter(Boolean))]
+    const rawTaps = tapRes.data ?? []
+    setTapCount(rawTaps.length)
+
+    // Try to resolve session → user_id (non-critical, fails gracefully)
     let sessUserMap = {}
+    const sessionIds = [...new Set(rawTaps.map(t => t.session_id).filter(Boolean))]
     if (sessionIds.length > 0) {
-      const { data: sessions } = await supabase
-        .from('sessions')
-        .select('id, user_id')
-        .in('id', sessionIds.slice(0, 200))
-      ;(sessions ?? []).forEach(s => { if (s.user_id) sessUserMap[s.id] = s.user_id })
+      try {
+        const { data: sessions } = await supabase
+          .from('sessions')
+          .select('id, user_id')
+          .in('id', sessionIds.slice(0, 200))
+        ;(sessions ?? []).forEach(s => { if (s.user_id) sessUserMap[s.id] = s.user_id })
+      } catch (_) {}
     }
 
-    const enriched = (tapRes.data ?? []).map(t => ({
+    const enriched = rawTaps.map(t => ({
       ...t,
-      contactName: t.contact?.name ?? null,
       userId: t.session_id ? (sessUserMap[t.session_id] ?? null) : null,
     }))
 
@@ -150,9 +167,11 @@ export function DoorMap({ onClose, embedded = false }) {
     const map = mapRef.current
     if (!map || loading) return
 
-    if (clusterRef.current) map.removeLayer(clusterRef.current)
+    if (layerRef.current) {
+      try { map.removeLayer(layerRef.current) } catch (_) {}
+    }
 
-    const cluster = L.markerClusterGroup({ maxClusterRadius: 40, showCoverageOnHover: false })
+    const layer = makeLayerGroup()
 
     const filtered = taps.filter(t =>
       !hiddenOutcomes.has(t.outcome) &&
@@ -161,18 +180,17 @@ export function DoorMap({ onClose, embedded = false }) {
 
     const bounds = []
     filtered.forEach(tap => {
-      if (!tap.lat || !tap.lng) return
+      if (tap.lat == null || tap.lng == null) return
       const icon = tap.outcome === 'nie_wieder' ? nieWiederIcon() : dotIcon(OUTCOME_COLORS[tap.outcome] ?? '#9CA3AF')
       const marker = L.marker([tap.lat, tap.lng], { icon })
       const repName = tap.userId ? (profileMap[tap.userId]?.display_name ?? null) : null
       marker.bindPopup(buildPopupHtml(tap, repName), { maxWidth: 240 })
-      if (repName) marker.bindTooltip(repName, { permanent: false, direction: 'bottom' })
-      cluster.addLayer(marker)
+      layer.addLayer(marker)
       bounds.push([tap.lat, tap.lng])
     })
 
-    map.addLayer(cluster)
-    clusterRef.current = cluster
+    map.addLayer(layer)
+    layerRef.current = layer
 
     if (bounds.length > 0) {
       try {
@@ -190,6 +208,12 @@ export function DoorMap({ onClose, embedded = false }) {
 
   const presentOutcomes = [...new Set(taps.map(t => t.outcome))].filter(o => o in OUTCOME_COLORS)
 
+  const statusLabel = loading
+    ? 'Laden…'
+    : tapCount === 0
+    ? 'Keine GPS-Daten'
+    : `${tapCount} Türen`
+
   return (
     <div className={embedded ? 'flex flex-col h-full' : 'fixed inset-0 z-50 flex flex-col bg-white'}>
       {!embedded && (
@@ -201,7 +225,7 @@ export function DoorMap({ onClose, embedded = false }) {
             ←
           </button>
           <h2 className="text-base font-bold text-gray-900">Karte</h2>
-          {loading && <span className="ml-auto text-xs text-gray-400">Laden…</span>}
+          <span className="ml-auto text-xs text-gray-400">{statusLabel}</span>
         </div>
       )}
 
