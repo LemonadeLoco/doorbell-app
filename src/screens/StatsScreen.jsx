@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useStats } from '../hooks/useStats'
 import { GebieteScreen } from './GebieteScreen'
+import { DoorMap } from '../components/DoorMap'
 import { WEEKDAYS_DE } from '../lib/constants'
 
 const RANGES = [
@@ -121,7 +122,7 @@ export function StatsScreen({ userSettings }) {
       <div className="bg-white px-4 pt-5 pb-3 shadow-sm">
         <h1 className="text-xl font-extrabold text-gray-900 mb-3">Statistiken</h1>
         <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-3">
-          {[{ id: 'stats', label: 'Statistiken' }, { id: 'gebiete', label: 'Gebiete' }].map(t => (
+          {[{ id: 'stats', label: 'Statistiken' }, { id: 'gebiete', label: 'Gebiete' }, { id: 'karte', label: 'Karte' }].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className="flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all pressable"
               style={tab === t.id ? { background: '#F59E0B', color: '#fff' } : { color: '#9CA3AF' }}>
@@ -142,7 +143,11 @@ export function StatsScreen({ userSettings }) {
         )}
       </div>
 
-      {tab === 'gebiete' ? <GebieteScreen /> : (
+      {tab === 'karte' ? (
+        <div style={{ height: 'calc(100dvh - 116px)', position: 'relative' }}>
+          <DoorMap embedded />
+        </div>
+      ) : tab === 'gebiete' ? <GebieteScreen /> : (
         <div className="px-4 py-4 flex flex-col gap-4">
           {/* Revenue */}
           <div className="rounded-2xl p-5 text-white shadow-md" style={{ background: 'linear-gradient(135deg, #F59E0B, #D97706)' }}>

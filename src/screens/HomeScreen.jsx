@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { LiveTeamFeed } from '../components/LiveTeamFeed'
 import { CallOutcomeOverlay } from '../components/CallOutcomeOverlay'
+import { DoorMap } from '../components/DoorMap'
 
 export function HomeScreen({ setScreen, sessionData, userSettings, onContactSelect }) {
   const [todayStats, setTodayStats] = useState({ doors: 0, convs: 0, contacts: 0, appts: 0 })
@@ -11,6 +12,7 @@ export function HomeScreen({ setScreen, sessionData, userSettings, onContactSele
   const [salesRevenue, setSalesRevenue] = useState(0)
   const [todayApptCount, setTodayApptCount] = useState(0)
   const [callOverlayContact, setCallOverlayContact] = useState(null)
+  const [showMap, setShowMap] = useState(false)
 
   const greeting = () => {
     const h = new Date().getHours()
@@ -93,12 +95,20 @@ export function HomeScreen({ setScreen, sessionData, userSettings, onContactSele
           <p className="text-xs text-gray-400 uppercase tracking-wider">{dateLabel}</p>
           <h1 className="text-xl font-extrabold text-gray-900">{greeting()} 👋</h1>
         </div>
-        <button
-          onClick={() => setScreen('settings')}
-          className="btn-press w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-400"
-        >
-          ⚙️
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowMap(true)}
+            className="btn-press w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-400"
+          >
+            🗺️
+          </button>
+          <button
+            onClick={() => setScreen('settings')}
+            className="btn-press w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-400"
+          >
+            ⚙️
+          </button>
+        </div>
       </div>
 
       {/* Live Team Feed */}
@@ -247,6 +257,8 @@ export function HomeScreen({ setScreen, sessionData, userSettings, onContactSele
           onClose={() => { setCallOverlayContact(null); loadAll() }}
         />
       )}
+
+      {showMap && <DoorMap onClose={() => setShowMap(false)} />}
     </div>
   )
 }
