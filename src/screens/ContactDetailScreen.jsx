@@ -4,6 +4,7 @@ import { STATUSES, PRODUCTS } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { Toast, useToast } from '../components/Toast'
 import { useCallAttempts } from '../hooks/useCallAttempts'
+import { CallOutcomeOverlay, RESULT_LABELS } from '../components/CallOutcomeOverlay'
 
 const OUTCOME_ICONS  = { erreicht: '✓', nicht_erreicht: '○', mailbox: '📬' }
 const OUTCOME_LABELS = { erreicht: 'Erreicht', nicht_erreicht: 'Nicht erreicht', mailbox: 'Mailbox' }
@@ -87,14 +88,14 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
   const [notes, setNotes]       = useState(initial.notes ?? '')
   const [notesSaved, setNotesSaved] = useState(false)
   const [saleAmount, setSaleAmount] = useState(initial.sale_amount ?? '')
-  const [callPhase, setCallPhase] = useState(null)
-  const [pendingStatus, setPendingStatus] = useState(null) // status key awaiting modal
+  const [pendingStatus, setPendingStatus] = useState(null)
   const [modalDate, setModalDate]   = useState('')
   const [modalAmount, setModalAmount] = useState('')
-  const [undoSnack, setUndoSnack]   = useState(null) // { label, prevStatus }
+  const [undoSnack, setUndoSnack]   = useState(null)
+  const [showCallOverlay, setShowCallOverlay] = useState(false)
   const undoSnackTimer = useRef(null)
   const { toast, show }         = useToast()
-  const { attempts, log, failCount } = useCallAttempts(contact.id)
+  const { attempts, failCount, reload: reloadAttempts } = useCallAttempts(contact.id)
 
   const update = async (patch) => {
     const { data } = await supabase.from('contacts').update(patch).eq('id', contact.id).select().single()
@@ -105,9 +106,8 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
   const applyStatus = async (s, extra = {}) => {
     const prev = contact.status
     await update({ status: s, ...extra })
-    // Show undo snackbar
     clearTimeout(undoSnackTimer.current)
-    setUndoSnack({ label: STATUSES[s]?.label ?? s, prevStatus: prev, prevExtra: {} })
+    setUndoSnack({ label: STATUSES[s]?.label ?? s, prevStatus: prev })
     undoSnackTimer.current = setTimeout(() => setUndoSnack(null), 4000)
   }
 
@@ -153,18 +153,6 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
     await update({ sale_amount: amt }); show('Betrag gespeichert')
   }
 
-  const handleCallOutcome = async (outcome) => {
-    if (outcome === 'erreicht') { setCallPhase('reached'); return }
-    const newCount = await log(outcome)
-    setCallPhase(null)
-    show(outcome === 'mailbox' ? 'Mailbox notiert' : 'Nicht erreicht notiert')
-    if (newCount >= 3) {
-      if (window.confirm('3 erfolglose Versuche. Kontakt archivieren?')) {
-        await update({ status: 'archiv' }); show('Archiviert')
-      }
-    }
-  }
-
   const handleApptOutcome = async (outcome) => {
     const note = outcome === 'abgesagt' ? `Termin abgesagt am ${new Date().toLocaleDateString('de-DE')}` : null
     const patch = { appt_outcome: outcome }
@@ -188,6 +176,13 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
     show('Rückgängig gemacht ✓')
   }
 
+  const handleOverlayClose = async () => {
+    setShowCallOverlay(false)
+    const { data } = await supabase.from('contacts').select('*').eq('id', contact.id).single()
+    if (data) { setContact(data); setNotes(data.notes ?? '') }
+    reloadAttempts()
+  }
+
   const tel      = contact.phone?.replace(/\s/g, '')
   const isAnruf  = contact.source === 'anruf'
   const isTermin = contact.status === 'termin'
@@ -202,11 +197,10 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
     return d.toLocaleString('de-DE', { weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
   }
 
-  // Detect note being the pre-call prep placeholder
   const isPreCallNote = !notes && isAnruf
 
-  const NEXT_STEP_STATUSES   = ['anrufen', 'kontakt', 'termin', 'verkauft', 'wiedervorlage']
-  const CLOSE_STATUSES       = ['kein_int', 'archiv']
+  const NEXT_STEP_STATUSES = ['anrufen', 'kontakt', 'termin', 'verkauft', 'wiedervorlage']
+  const CLOSE_STATUSES     = ['kein_int', 'archiv']
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50 screen-slide-in">
@@ -276,54 +270,23 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
           </div>
         )}
 
-        {/* Anruf protokollieren */}
-        {isAnruf && (
+        {/* Anruf-Verlauf — shown for all contacts that have call attempts */}
+        {attempts.length > 0 && (
           <div className="bg-white rounded-2xl p-4 shadow-sm">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Anruf protokollieren</p>
-            {callPhase === 'reached' ? (
-              <div>
-                <p className="text-xs text-gray-500 mb-2">Ergebnis des Gesprächs:</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {[['kontakt','Kontakt'],['termin','Termin'],['kein_int','Kein Int.']].map(([key, lbl]) => (
-                    <button key={key} className="pressable py-2.5 rounded-xl text-xs font-bold"
-                      style={{ background: STATUSES[key]?.bg, color: STATUSES[key]?.text }}
-                      onClick={async () => { await log('erreicht'); handleStatusTap(key); setCallPhase(null) }}>
-                      {lbl}
-                    </button>
-                  ))}
-                </div>
-                <button className="mt-2 text-xs text-gray-400 w-full text-center py-1" onClick={() => setCallPhase(null)}>Abbrechen</button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: 'erreicht',       label: '✓ Erreicht',       bg: '#D1FAE5', text: '#065F46' },
-                  { id: 'nicht_erreicht', label: '✗ Nicht erreicht', bg: '#FEE2E2', text: '#991B1B' },
-                  { id: 'mailbox',        label: '📬 Mailbox',        bg: '#F3F4F6', text: '#374151' },
-                ].map(o => (
-                  <button key={o.id} className="pressable py-3 rounded-xl text-xs font-bold"
-                    style={{ background: o.bg, color: o.text }}
-                    onClick={() => handleCallOutcome(o.id)}>
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Call history */}
-        {isAnruf && attempts.length > 0 && (
-          <div className="bg-white rounded-2xl p-4 shadow-sm">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Anrufhistorie</p>
-            <div className="flex flex-col gap-2">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Anruf-Verlauf</p>
+            <div className="flex flex-col">
               {attempts.map((a, i) => (
-                <div key={a.id ?? i} className="flex items-center gap-3 text-sm">
-                  <span style={{ color: a.outcome === 'erreicht' ? '#065F46' : '#9CA3AF' }}>{OUTCOME_ICONS[a.outcome]}</span>
-                  <span className="flex-1 text-gray-600">{OUTCOME_LABELS[a.outcome]}</span>
-                  <span className="text-xs text-gray-300">
-                    {new Date(a.attempted_at).toLocaleDateString('de-DE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                  </span>
+                <div key={a.id ?? i} className="flex flex-col gap-0.5 py-2 border-b border-gray-50 last:border-0">
+                  <div className="flex items-center gap-3 text-sm">
+                    <span style={{ color: a.outcome === 'erreicht' ? '#065F46' : '#9CA3AF' }}>{OUTCOME_ICONS[a.outcome]}</span>
+                    <span className="flex-1 text-gray-600">
+                      {OUTCOME_LABELS[a.outcome]}{a.result ? ` · ${RESULT_LABELS[a.result] ?? a.result}` : ''}
+                    </span>
+                    <span className="text-xs text-gray-300">
+                      {new Date(a.attempted_at).toLocaleDateString('de-DE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  {a.notes && <p className="text-xs text-gray-400 ml-6">{a.notes}</p>}
                 </div>
               ))}
             </div>
@@ -331,11 +294,19 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
           </div>
         )}
 
-        {/* Call button */}
+        {/* Call button + Anruf eintragen */}
         {tel && (
-          <a href={`tel:${tel}`} className="pressable flex items-center justify-center gap-2 w-full py-4 rounded-2xl bg-green-500 text-white font-bold text-base shadow-sm">
-            📞 Anrufen — {contact.phone}
-          </a>
+          <div className="flex flex-col gap-2">
+            <a href={`tel:${tel}`} className="pressable flex items-center justify-center gap-2 w-full py-4 rounded-2xl bg-green-500 text-white font-bold text-base shadow-sm">
+              📞 Anrufen — {contact.phone}
+            </a>
+            <button
+              onClick={() => setShowCallOverlay(true)}
+              className="pressable flex items-center justify-center gap-2 w-full py-3 rounded-2xl bg-white text-gray-600 font-semibold text-sm shadow-sm border border-gray-200"
+            >
+              📋 Anruf eintragen
+            </button>
+          </div>
         )}
 
         {/* Upsell tip for Bestandskunden */}
@@ -413,7 +384,7 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
           </div>
         </div>
 
-        {/* Notes — clearly editable */}
+        {/* Notes */}
         <div
           className="bg-white rounded-2xl p-4 shadow-sm"
           style={{ border: notesSaved ? '1.5px solid #10B981' : '1.5px solid transparent', transition: 'border-color 0.4s' }}
@@ -444,7 +415,7 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
           {notesSaved && <p className="text-xs text-green-500 mt-1">Gespeichert ✓</p>}
         </div>
 
-        {/* Status grid — two groups */}
+        {/* Status grid */}
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Nächster Schritt</p>
           <div className="grid grid-cols-3 gap-2 mb-4">
@@ -573,6 +544,14 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
             <button className="pressable flex-1 py-3 rounded-xl text-sm font-bold bg-blue-500 text-white" onClick={confirmModal}>Speichern</button>
           </div>
         </StatusModal>
+      )}
+
+      {/* Call Outcome Overlay */}
+      {showCallOverlay && (
+        <CallOutcomeOverlay
+          contact={contact}
+          onClose={handleOverlayClose}
+        />
       )}
 
       <Toast toast={toast} />

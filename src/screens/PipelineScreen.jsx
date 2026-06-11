@@ -4,6 +4,7 @@ import { StatusBadge, SourceBadge } from '../components/StatusBadge'
 import { PRODUCTS, formatDateSmart } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { BottomSheet } from '../components/BottomSheet'
+import { CallOutcomeOverlay } from '../components/CallOutcomeOverlay'
 
 const FILTERS = [
   { id: 'Alle',           label: 'Alle' },
@@ -45,6 +46,7 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
   const [showImport, setShowImport] = useState(false)
   const [compactView, setCompactView] = useState(false)
   const [showFABMenu, setShowFABMenu] = useState(false)
+  const [callOverlayContact, setCallOverlayContact] = useState(null)
   const { contacts, loading, addContact } = useContacts()
 
   const today    = todayStr()
@@ -175,13 +177,15 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
         ) : compactView ? (
           sorted.map(c => (
             <CompactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)}
-              isExpired={isExpired(c)} today={today} />
+              isExpired={isExpired(c)} today={today}
+              onCallLog={c.phone ? () => setCallOverlayContact(c) : null} />
           ))
         ) : (
           sorted.map(c => (
             <ContactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)}
               showQuickDial={isBK} initials={initials} avatarColor={avatarColor}
-              isExpired={isExpired(c)} today={today} tomorrow={tomorrow} />
+              isExpired={isExpired(c)} today={today} tomorrow={tomorrow}
+              onCallLog={c.phone ? () => setCallOverlayContact(c) : null} />
           ))
         )}
       </div>
@@ -229,39 +233,58 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
           onImported={() => setShowImport(false)}
         />
       )}
+
+      {callOverlayContact && (
+        <CallOutcomeOverlay
+          contact={callOverlayContact}
+          onClose={() => setCallOverlayContact(null)}
+        />
+      )}
     </div>
   )
 }
 
 // Compact list-view card
-function CompactCard({ contact: c, onSelect, isExpired, today }) {
+function CompactCard({ contact: c, onSelect, isExpired, today, onCallLog }) {
   const apptDate = c.appt_at ? c.appt_at.split('T')[0] : null
   const isToday  = apptDate === today
   return (
-    <button
-      className="pressable flex items-center gap-3 bg-white rounded-xl px-4 py-2.5 shadow-sm w-full text-left"
+    <div
+      className="flex items-center bg-white rounded-xl shadow-sm overflow-hidden"
       style={isExpired ? { borderLeft: '3px solid #F59E0B' } : {}}
-      onClick={onSelect}
     >
-      <div className="flex-1 min-w-0">
-        <p className="font-semibold text-gray-900 text-sm truncate">{c.name}</p>
-      </div>
-      <div className="flex items-center gap-1.5 flex-shrink-0">
-        {isExpired && <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">Abgelaufen</span>}
-        {c.status === 'termin' && isToday && c.appt_at && (
-          <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">
-            Heute {new Date(c.appt_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
-          </span>
-        )}
-        <StatusBadge status={c.status} />
-        <span className="text-xs text-gray-300">{relativeTime(c.updated_at ?? c.added_at)}</span>
-      </div>
-    </button>
+      <button
+        className="pressable flex items-center gap-3 flex-1 px-4 py-2.5 text-left min-w-0"
+        onClick={onSelect}
+      >
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-gray-900 text-sm truncate">{c.name}</p>
+        </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {isExpired && <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">Abgelaufen</span>}
+          {c.status === 'termin' && isToday && c.appt_at && (
+            <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">
+              Heute {new Date(c.appt_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+          <StatusBadge status={c.status} />
+          <span className="text-xs text-gray-300">{relativeTime(c.updated_at ?? c.added_at)}</span>
+        </div>
+      </button>
+      {onCallLog && (
+        <button
+          className="pressable px-3 py-2.5 text-gray-400 text-sm flex-shrink-0 border-l border-gray-100"
+          onClick={e => { e.stopPropagation(); onCallLog() }}
+        >
+          📞
+        </button>
+      )}
+    </div>
   )
 }
 
 // Full card with swipe-to-call
-function ContactCard({ contact: c, onSelect, showQuickDial, initials, avatarColor, isExpired, today, tomorrow }) {
+function ContactCard({ contact: c, onSelect, showQuickDial, initials, avatarColor, isExpired, today, tomorrow, onCallLog }) {
   const [swipeX, setSwipeX]     = useState(0)
   const [swiping, setSwiping]   = useState(false)
   const startXRef = useRef(0)
@@ -337,12 +360,27 @@ function ContactCard({ contact: c, onSelect, showQuickDial, initials, avatarColo
             <span className="text-gray-300 text-base">›</span>
           </div>
         </button>
-        {showQuickDial && c.phone && (
-          <a href={`tel:${c.phone.replace(/\s/g,'')}`}
-            className="pressable flex items-center justify-center gap-2 mt-3 py-2.5 rounded-xl bg-green-50 text-green-700 text-sm font-semibold"
-            onClick={e => e.stopPropagation()}>
-            📞 Anrufen
-          </a>
+        {c.phone && (
+          <div className="flex gap-2 mt-3">
+            {showQuickDial && (
+              <a
+                href={`tel:${c.phone.replace(/\s/g,'')}`}
+                className="pressable flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-green-50 text-green-700 text-sm font-semibold"
+                onClick={e => e.stopPropagation()}
+              >
+                📞 Anrufen
+              </a>
+            )}
+            {onCallLog && (
+              <button
+                className="pressable flex items-center justify-center gap-1 px-3 py-2.5 rounded-xl bg-gray-50 text-gray-500 text-xs font-semibold border border-gray-100"
+                style={!showQuickDial ? { flex: 1 } : {}}
+                onClick={e => { e.stopPropagation(); onCallLog() }}
+              >
+                📞 Anruf
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

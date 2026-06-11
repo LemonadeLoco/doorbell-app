@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { LiveTeamFeed } from '../components/LiveTeamFeed'
+import { CallOutcomeOverlay } from '../components/CallOutcomeOverlay'
 
-export function HomeScreen({ setScreen, sessionData, userSettings }) {
+export function HomeScreen({ setScreen, sessionData, userSettings, onContactSelect }) {
   const [todayStats, setTodayStats] = useState({ doors: 0, convs: 0, contacts: 0, appts: 0 })
-  const [todayAppts, setTodayAppts] = useState([])      // { id, name, address, appt_at }
-  const [todayFollowups, setTodayFollowups] = useState([]) // wiedervorlage due today
+  const [todayAppts, setTodayAppts] = useState([])
+  const [todayFollowups, setTodayFollowups] = useState([])
   const [callCount, setCallCount]   = useState(0)
   const [salesRevenue, setSalesRevenue] = useState(0)
   const [todayApptCount, setTodayApptCount] = useState(0)
+  const [callOverlayContact, setCallOverlayContact] = useState(null)
 
   const greeting = () => {
     const h = new Date().getHours()
@@ -20,24 +23,22 @@ export function HomeScreen({ setScreen, sessionData, userSettings }) {
   useEffect(() => { loadAll() }, [])
 
   const todayStart = () => { const d = new Date(); d.setHours(0,0,0,0); return d.toISOString() }
-  const todayEnd   = () => { const d = new Date(); d.setHours(23,59,59,999); return d.toDateString() }
-
-  const todayStr = new Date().toISOString().split('T')[0]
+  const todayStr   = new Date().toISOString().split('T')[0]
 
   const loadAll = async () => {
     const [callRes, apptRes, followupRes, tapRes, salesRes] = await Promise.all([
       supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('status', 'anrufen'),
       supabase.from('contacts')
-        .select('id, name, address, appt_at')
+        .select('*')
         .eq('status', 'termin')
         .gte('appt_at', todayStart())
         .lte('appt_at', new Date(new Date().setHours(23,59,59,999)).toISOString())
         .order('appt_at'),
       supabase.from('contacts')
-        .select('id, name')
+        .select('*')
         .eq('status', 'wiedervorlage')
-        .gte('followup_at', todayStr)
-        .lte('followup_at', todayStr),
+        .lte('followup_at', todayStr)
+        .order('followup_at', { ascending: true }),
       supabase.from('door_taps').select('outcome').gte('tapped_at', todayStart()),
       supabase.from('contacts').select('sale_amount').eq('status', 'verkauft'),
     ])
@@ -83,6 +84,8 @@ export function HomeScreen({ setScreen, sessionData, userSettings }) {
     ? new Date(nextAppt.appt_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
     : null
 
+  const hasHeuteFaellig = todayAppts.length > 0 || todayFollowups.length > 0
+
   return (
     <div className="flex flex-col gap-4 p-4 pb-28">
       <div className="flex items-center justify-between">
@@ -98,6 +101,9 @@ export function HomeScreen({ setScreen, sessionData, userSettings }) {
         </button>
       </div>
 
+      {/* Live Team Feed */}
+      <LiveTeamFeed />
+
       {/* Revenue card */}
       <div className="rounded-2xl p-5 text-white shadow-md" style={{ background: 'linear-gradient(135deg, #F59E0B, #D97706)' }}>
         <p className="text-xs font-semibold uppercase tracking-widest opacity-80 mb-1">Umsatzziel 2025</p>
@@ -111,7 +117,7 @@ export function HomeScreen({ setScreen, sessionData, userSettings }) {
         <p className="text-xs mt-2 opacity-80">{pct}% erreicht</p>
       </div>
 
-      {/* Today appointments banner — shown when there are appts today */}
+      {/* Today appointments banner */}
       {todayApptCount > 0 && (
         <button
           className="pressable flex items-center gap-3 w-full rounded-2xl px-4 py-3 shadow-sm text-left"
@@ -154,31 +160,72 @@ export function HomeScreen({ setScreen, sessionData, userSettings }) {
         {sessionData?.isActive ? '▶ Runde läuft — Öffnen' : '▲ Runde starten'}
       </button>
 
-      {/* Heute — appointments + wiedervorlage */}
-      {(todayAppts.length > 0 || todayFollowups.length > 0) && (
+      {/* Heute fällig */}
+      {hasHeuteFaellig && (
         <div className="bg-white rounded-2xl p-4 shadow-sm">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Heute</p>
-          {todayAppts.map((c) => (
-            <div key={c.id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
-              <span className="text-base">📅</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-900">{c.name}</p>
-                {c.address && <p className="text-xs text-gray-400 truncate">{c.address}</p>}
-              </div>
-              <span className="text-sm font-bold text-green-700 flex-shrink-0">
-                {new Date(c.appt_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr
-              </span>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Heute fällig</p>
+
+          {todayAppts.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Termine</p>
+              {todayAppts.map((c) => (
+                <button
+                  key={c.id}
+                  className="pressable flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0 w-full text-left"
+                  onClick={() => onContactSelect?.(c)}
+                >
+                  <span className="text-base flex-shrink-0">📅</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900">{c.name}</p>
+                    {c.address && <p className="text-xs text-gray-400 truncate">{c.address}</p>}
+                  </div>
+                  <span className="text-sm font-bold text-green-700 flex-shrink-0">
+                    {new Date(c.appt_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr
+                  </span>
+                </button>
+              ))}
             </div>
-          ))}
-          {todayFollowups.map((c) => (
-            <div key={c.id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
-              <span className="text-base">📱</span>
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-gray-900">{c.name}</p>
-                <p className="text-xs text-blue-500">Wiedervorlage heute fällig</p>
-              </div>
+          )}
+
+          {todayFollowups.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">Anrufen</p>
+              {todayFollowups.map((c) => (
+                <div key={c.id} className="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
+                  <button
+                    className="pressable flex-1 text-left min-w-0"
+                    onClick={() => onContactSelect?.(c)}
+                  >
+                    <p className="text-sm font-semibold text-gray-900">{c.name}</p>
+                    {c.followup_at && (
+                      <p className="text-xs text-blue-500">
+                        {new Date(c.followup_at).toLocaleDateString('de-DE', { day: 'numeric', month: 'short' })}
+                      </p>
+                    )}
+                  </button>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {c.phone && (
+                      <a
+                        href={`tel:${c.phone.replace(/\s/g,'')}`}
+                        className="pressable text-green-600 text-sm px-2 py-1 rounded-lg bg-green-50"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        📞
+                      </a>
+                    )}
+                    {c.phone && (
+                      <button
+                        className="pressable text-xs font-semibold px-2 py-1 rounded-lg bg-gray-100 text-gray-500"
+                        onClick={() => setCallOverlayContact(c)}
+                      >
+                        Anruf
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 
@@ -191,6 +238,14 @@ export function HomeScreen({ setScreen, sessionData, userSettings }) {
             <span className="text-sm font-bold text-blue-600">{callCount}</span>
           </button>
         </div>
+      )}
+
+      {/* Call Outcome Overlay */}
+      {callOverlayContact && (
+        <CallOutcomeOverlay
+          contact={callOverlayContact}
+          onClose={() => { setCallOverlayContact(null); loadAll() }}
+        />
       )}
     </div>
   )
