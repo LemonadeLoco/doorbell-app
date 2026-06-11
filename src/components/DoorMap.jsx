@@ -75,8 +75,8 @@ function buildPopupHtml(tap, repName) {
     day: '2-digit', month: '2-digit', year: '2-digit',
     hour: '2-digit', minute: '2-digit',
   })
-  const nieNote = tap.outcome === 'nie_wieder' && tap.notes
-    ? `<p style="margin:4px 0 0;color:#991B1B;font-size:11px">🚫 ${tap.notes}</p>` : ''
+  const nieNote = tap.outcome === 'nie_wieder' && tap.note
+    ? `<p style="margin:4px 0 0;color:#991B1B;font-size:11px">🚫 ${tap.note}</p>` : ''
   return `<div style="min-width:160px;font-family:-apple-system,system-ui,sans-serif;font-size:13px;line-height:1.4">
     <p style="font-weight:700;color:#111;margin:0 0 3px">${tap.address ?? '—'}</p>
     <p style="margin:0;color:${color};font-weight:600">${label}</p>
@@ -121,7 +121,7 @@ export function DoorMap({ onClose, embedded = false }) {
     const [tapRes, profRes] = await Promise.all([
       supabase
         .from('door_taps')
-        .select('id, lat, lng, outcome, tapped_at, address, notes, session_id')
+        .select('id, lat, lng, outcome, tapped_at, address, note, session_id')
         .not('lat', 'is', null)
         .not('lng', 'is', null)
         .gte('tapped_at', cutoff)
