@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef } from 'react'
 import { useContacts } from '../hooks/useContacts'
+import { usePipelineGroups } from '../hooks/usePipelineGroups'
 import { StatusBadge, SourceBadge } from '../components/StatusBadge'
 import { PRODUCTS, formatDateSmart } from '../lib/constants'
 import { supabase } from '../lib/supabase'
@@ -42,10 +43,11 @@ function tomorrowStr() {
 export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
   const [filter, setFilter]       = useState('Alle')
   const [search, setSearch]       = useState('')
-  const [showAdd, setShowAdd]     = useState(false)
-  const [showImport, setShowImport] = useState(false)
+  const [showAdd, setShowAdd]         = useState(false)
+  const [showImport, setShowImport]   = useState(false)
   const [compactView, setCompactView] = useState(false)
   const [showFABMenu, setShowFABMenu] = useState(false)
+  const [archivExpanded, setArchivExpanded] = useState(false)
   const [callOverlayContact, setCallOverlayContact] = useState(null)
   const { contacts, loading, addContact } = useContacts()
 
@@ -107,6 +109,9 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
     return colors[(name?.charCodeAt(0) ?? 0) % colors.length]
   }
 
+  const { urgent, active, archived } = usePipelineGroups(contacts)
+  const isSectioned = filter === 'Alle' && !search.trim()
+
   const isBK = filter === 'bestandskunden'
 
   // Expired appointments: status=termin, appt_at more than 2h in past
@@ -165,6 +170,52 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
       <div className="flex-1 px-4 py-3 flex flex-col gap-2">
         {loading ? (
           <p className="text-center text-gray-400 mt-10 text-sm">Laden...</p>
+        ) : isSectioned ? (
+          <>
+            {urgent.length === 0 && active.length === 0 && archived.length === 0 ? (
+              <div className="text-center mt-16">
+                <p className="text-4xl mb-3">📭</p>
+                <p className="text-gray-500 font-semibold text-sm">Noch keine Kontakte</p>
+                <button className="mt-4 px-5 py-2.5 bg-amber-400 text-white text-sm font-bold rounded-xl pressable" onClick={() => setShowAdd(true)}>+ Kontakt hinzufügen</button>
+              </div>
+            ) : (
+              <>
+                {urgent.length > 0 && (
+                  <>
+                    <SectionHeader title="Handlungsbedarf" count={urgent.length} color="#F59E0B" />
+                    {compactView
+                      ? urgent.map(c => <CompactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} isExpired={isExpired(c)} today={today} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="urgent" />)
+                      : urgent.map(c => <ContactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} showQuickDial={isBK} initials={initials} avatarColor={avatarColor} isExpired={isExpired(c)} today={today} tomorrow={tomorrow} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="urgent" />)
+                    }
+                  </>
+                )}
+                {active.length > 0 && (
+                  <>
+                    <SectionHeader title="In Bearbeitung" count={active.length} color="#3B82F6" />
+                    {compactView
+                      ? active.map(c => <CompactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} isExpired={isExpired(c)} today={today} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="active" />)
+                      : active.map(c => <ContactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} showQuickDial={isBK} initials={initials} avatarColor={avatarColor} isExpired={isExpired(c)} today={today} tomorrow={tomorrow} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="active" />)
+                    }
+                  </>
+                )}
+                {archived.length > 0 && (
+                  <>
+                    <button
+                      className="pressable flex items-center justify-between w-full px-3 py-2.5 mt-1 rounded-xl bg-gray-50 text-gray-400 text-xs font-semibold"
+                      onClick={() => setArchivExpanded(v => !v)}
+                    >
+                      <span>Kein Interesse / Archiv ({archived.length})</span>
+                      <span>{archivExpanded ? '▲' : '▼'}</span>
+                    </button>
+                    {archivExpanded && (compactView
+                      ? archived.map(c => <CompactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} isExpired={isExpired(c)} today={today} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="archived" />)
+                      : archived.map(c => <ContactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} showQuickDial={false} initials={initials} avatarColor={avatarColor} isExpired={isExpired(c)} today={today} tomorrow={tomorrow} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="archived" />)
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </>
         ) : sorted.length === 0 ? (
           <div className="text-center mt-16">
             <p className="text-4xl mb-3">📭</p>
@@ -245,13 +296,21 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
 }
 
 // Compact list-view card
-function CompactCard({ contact: c, onSelect, isExpired, today, onCallLog }) {
+function CompactCard({ contact: c, onSelect, isExpired, today, onCallLog, sectionType }) {
   const apptDate = c.appt_at ? c.appt_at.split('T')[0] : null
   const isToday  = apptDate === today
+  const isWVOverdue = c.status === 'wiedervorlage' && (!c.followup_at || c.followup_at.split('T')[0] <= today)
+
+  const borderColor = sectionType === 'urgent'   ? '#F59E0B'
+                    : sectionType === 'active'    ? '#3B82F6'
+                    : sectionType === 'archived'  ? '#9CA3AF'
+                    : isExpired                   ? '#F59E0B'
+                    : undefined
+
   return (
     <div
       className="flex items-center bg-white rounded-xl shadow-sm overflow-hidden"
-      style={isExpired ? { borderLeft: '3px solid #F59E0B' } : {}}
+      style={borderColor ? { borderLeft: `3px solid ${borderColor}`, opacity: sectionType === 'archived' ? 0.6 : 1 } : {}}
     >
       <button
         className="pressable flex items-center gap-3 flex-1 px-4 py-2.5 text-left min-w-0"
@@ -262,9 +321,10 @@ function CompactCard({ contact: c, onSelect, isExpired, today, onCallLog }) {
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {isExpired && <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">Abgelaufen</span>}
+          {isWVOverdue && <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">Fällig</span>}
           {c.status === 'termin' && isToday && c.appt_at && (
-            <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">
-              Heute {new Date(c.appt_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+            <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-semibold">
+              {new Date(c.appt_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
           <StatusBadge status={c.status} />
@@ -284,15 +344,22 @@ function CompactCard({ contact: c, onSelect, isExpired, today, onCallLog }) {
 }
 
 // Full card with swipe-to-call
-function ContactCard({ contact: c, onSelect, showQuickDial, initials, avatarColor, isExpired, today, tomorrow, onCallLog }) {
+function ContactCard({ contact: c, onSelect, showQuickDial, initials, avatarColor, isExpired, today, tomorrow, onCallLog, sectionType }) {
   const [swipeX, setSwipeX]     = useState(0)
   const [swiping, setSwiping]   = useState(false)
   const startXRef = useRef(0)
   const THRESHOLD = 60
 
   const apptDate = c.appt_at ? c.appt_at.split('T')[0] : null
-  const isToday    = apptDate === today
-  const isTomorrow = apptDate === tomorrow
+  const isToday     = apptDate === today
+  const isTomorrow  = apptDate === tomorrow
+  const isWVOverdue = c.status === 'wiedervorlage' && (!c.followup_at || c.followup_at.split('T')[0] <= today)
+
+  const borderColor = sectionType === 'urgent'   ? '#F59E0B'
+                    : sectionType === 'active'    ? '#3B82F6'
+                    : sectionType === 'archived'  ? '#9CA3AF'
+                    : isExpired                   ? '#F59E0B'
+                    : undefined
 
   const onTouchStart = (e) => {
     startXRef.current = e.touches[0].clientX
@@ -314,7 +381,7 @@ function ContactCard({ contact: c, onSelect, showQuickDial, initials, avatarColo
   return (
     <div
       className="relative overflow-hidden rounded-2xl"
-      style={isExpired ? { borderLeft: '3px solid #F59E0B' } : {}}
+      style={borderColor ? { borderLeft: `3px solid ${borderColor}`, opacity: sectionType === 'archived' ? 0.6 : 1 } : {}}
     >
       {/* Swipe-to-call reveal */}
       <div
@@ -345,10 +412,12 @@ function ContactCard({ contact: c, onSelect, showQuickDial, initials, avatarColo
             <p className="text-xs text-gray-300 mt-0.5">{relativeTime(c.updated_at ?? c.added_at)}</p>
           </div>
           <div className="flex flex-col items-end gap-1 flex-shrink-0">
+            <span className="text-xs">{c.source === 'anruf' ? '📞' : '🚪'}</span>
             {isExpired && <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">Abgelaufen</span>}
+            {isWVOverdue && <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">Fällig</span>}
             {c.status === 'termin' && isToday && c.appt_at ? (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-bold">
-                Heute {new Date(c.appt_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+              <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-bold">
+                {new Date(c.appt_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
               </span>
             ) : c.status === 'termin' && isTomorrow ? (
               <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">Morgen</span>
@@ -383,6 +452,16 @@ function ContactCard({ contact: c, onSelect, showQuickDial, initials, avatarColo
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function SectionHeader({ title, count, color }) {
+  return (
+    <div className="flex items-center gap-2 mt-3 mb-1 px-1">
+      <div className="w-1 h-4 rounded-full flex-shrink-0" style={{ background: color }} />
+      <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">{title}</span>
+      <span className="text-xs text-gray-400">({count})</span>
     </div>
   )
 }
