@@ -21,6 +21,10 @@ export function RundeScreen({ sessionHook }) {
   } = sessionHook
 
   const [sheet, setSheet]         = useState(null) // null | 'kontakt' | 'termin' | 'wiedervorlage'
+  const [showStartModal, setShowStartModal] = useState(false)
+  const [gebietInput, setGebietInput]       = useState('')
+  const [gebieteOptions, setGebieteOptions] = useState([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
   const [tapToast, setTapToast]   = useState(null) // { msg, address, loading, tapId, contactId, outcome }
   const toastDismissTimer = useRef(null)
   const [doorKey, setDoorKey]     = useState(0)    // key change triggers counter animation
@@ -174,6 +178,24 @@ export function RundeScreen({ sessionHook }) {
     } catch { show('Fehler beim Speichern') }
   }
 
+  const openStartModal = async () => {
+    setGebietInput('')
+    setShowSuggestions(false)
+    setShowStartModal(true)
+    const { data } = await supabase.from('sessions').select('gebiet').not('gebiet', 'is', null).order('started_at', { ascending: false })
+    const unique = [...new Set((data ?? []).map(s => s.gebiet).filter(Boolean))]
+    setGebieteOptions(unique)
+  }
+
+  const handleStartConfirm = async () => {
+    setShowStartModal(false)
+    await startSession(gebietInput.trim() || null)
+  }
+
+  const filteredOptions = gebieteOptions.filter(g =>
+    g.toLowerCase().includes(gebietInput.toLowerCase())
+  )
+
   if (!isActive) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-6 pb-28 gap-6">
@@ -182,9 +204,62 @@ export function RundeScreen({ sessionHook }) {
           <h2 className="text-2xl font-extrabold text-gray-900 mb-2">Runde starten</h2>
           <p className="text-sm text-gray-500 leading-relaxed">GPS, Gespräche und Termine — mit einem Tippen pro Tür.</p>
         </div>
-        <button className="pressable w-full py-5 rounded-2xl font-bold text-white text-lg shadow-lg bg-amber-400" onClick={startSession}>
+        <button className="pressable w-full py-5 rounded-2xl font-bold text-white text-lg shadow-lg bg-amber-400" onClick={openStartModal}>
           ▲ Runde starten
         </button>
+
+        {showStartModal && (
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 9000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end' }}
+            onClick={() => setShowStartModal(false)}
+          >
+            <div
+              className="bg-white rounded-t-3xl px-6 pt-6 pb-10 w-full"
+              onClick={e => e.stopPropagation()}
+            >
+              <h2 className="text-lg font-extrabold text-gray-900 mb-5">Neue Runde starten</h2>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Gebiet (optional)</p>
+              <div className="relative mb-6">
+                <input
+                  type="text"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-gray-50"
+                  placeholder="z.B. Schwabing-West"
+                  value={gebietInput}
+                  onChange={e => { setGebietInput(e.target.value); setShowSuggestions(true) }}
+                  onFocus={() => setShowSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                  autoComplete="off"
+                />
+                {showSuggestions && filteredOptions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 bg-white border border-gray-100 rounded-xl shadow-lg mt-1 overflow-hidden z-10">
+                    {filteredOptions.map(g => (
+                      <button
+                        key={g}
+                        className="w-full text-left px-4 py-3 text-sm text-gray-700 border-b border-gray-50 last:border-0"
+                        onMouseDown={() => { setGebietInput(g); setShowSuggestions(false) }}
+                      >
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                className="pressable w-full py-4 rounded-2xl font-bold text-white bg-amber-400 text-base mb-2"
+                onClick={handleStartConfirm}
+              >
+                ▲ Runde starten
+              </button>
+              <button
+                className="w-full py-3 text-gray-400 text-sm"
+                onClick={() => setShowStartModal(false)}
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        )}
+
         <Toast toast={toast} />
       </div>
     )

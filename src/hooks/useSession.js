@@ -21,10 +21,12 @@ export function useSession() {
     return () => clearInterval(timerRef.current)
   }, [session?.id])
 
-  const startSession = async () => {
+  const startSession = async (gebiet = null) => {
     const { data: authData } = await supabase.auth.getSession()
     const userId = authData.session?.user?.id ?? null
-    const { data, error } = await supabase.from('sessions').insert({ doors_knocked: 0, conversations: 0, user_id: userId }).select().single()
+    const insertData = { doors_knocked: 0, conversations: 0, user_id: userId }
+    if (gebiet) insertData.gebiet = gebiet
+    const { data, error } = await supabase.from('sessions').insert(insertData).select().single()
     if (error) throw error
     const s = { ...data, _doors: 0, _convs: 0, _contacts: 0, _appts: 0 }
     setSession(s)

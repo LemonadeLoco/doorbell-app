@@ -40,17 +40,19 @@ export function StatsScreen({ userSettings }) {
     const start = rangeStart(range)
     const sevenAgo = new Date(Date.now() - 7 * 86400000).toISOString()
 
-    const [tapRes, weekRes, salesRes, contactRes] = await Promise.all([
+    const [tapRes, weekRes, salesRes, contactRes, sessionRes] = await Promise.all([
       supabase.from('door_taps').select('tapped_at, outcome, address').gte('tapped_at', start ? start.toISOString() : '2000-01-01'),
       supabase.from('door_taps').select('tapped_at').gte('tapped_at', sevenAgo),
       supabase.from('contacts').select('sale_amount, added_at, product').eq('status', 'verkauft'),
       supabase.from('contacts').select('added_at, status').gte('added_at', sevenAgo),
+      supabase.from('sessions').select('id, started_at, ended_at, doors_knocked, gebiet').not('ended_at', 'is', null).order('started_at', { ascending: false }).limit(20),
     ])
 
     const taps = tapRes.data ?? []
     const weekTaps = weekRes.data ?? []
     const sales = salesRes.data ?? []
     const contacts7 = contactRes.data ?? []
+    const sessions = sessionRes.data ?? []
 
     // Weekly chart: last 7 days
     const today = new Date(); today.setHours(0,0,0,0)
@@ -94,7 +96,7 @@ export function StatsScreen({ userSettings }) {
     sales.forEach(s => { if (s.product) prodCount[s.product] = (prodCount[s.product] ?? 0) + 1 })
     const products = Object.entries(prodCount).sort(([,a],[,b]) => b - a).slice(0, 5)
 
-    setExtended({ weekChart, bestDayLabel, streak, topStreet, products })
+    setExtended({ weekChart, bestDayLabel, streak, topStreet, products, sessions })
   }
 
   const target = userSettings?.revenue_target ?? 700000
@@ -247,7 +249,42 @@ export function StatsScreen({ userSettings }) {
               })}
             </div>
           )}
+
+          {/* Session history */}
+          {extended?.sessions?.length > 0 && (
+            <div className="bg-white rounded-2xl p-4 shadow-sm">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Runden</p>
+              <div className="flex flex-col divide-y divide-gray-50">
+                {extended.sessions.map(s => <SessionRow key={s.id} session={s} />)}
+              </div>
+            </div>
+          )}
         </div>
+      )}
+    </div>
+  )
+}
+
+function SessionRow({ session }) {
+  const started = new Date(session.started_at)
+  const dateLabel = started.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })
+
+  let durationLabel = ''
+  if (session.ended_at) {
+    const diffMs = new Date(session.ended_at).getTime() - started.getTime()
+    const h = Math.floor(diffMs / 3600000)
+    const m = Math.floor((diffMs % 3600000) / 60000)
+    durationLabel = h > 0 ? `${h}h ${m}min` : `${m}min`
+  }
+
+  return (
+    <div className="flex items-center gap-2 py-2.5 flex-wrap">
+      <span className="text-sm text-gray-600 font-medium">{dateLabel}</span>
+      {durationLabel && <><span className="text-gray-300">•</span><span className="text-sm text-gray-400">{durationLabel}</span></>}
+      <span className="text-gray-300">•</span>
+      <span className="text-sm text-gray-400">{session.doors_knocked ?? 0} Türen</span>
+      {session.gebiet && (
+        <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{session.gebiet}</span>
       )}
     </div>
   )
