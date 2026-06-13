@@ -13,6 +13,7 @@ import { ContactDetailScreen } from './screens/ContactDetailScreen'
 import { StatsScreen } from './screens/StatsScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { BestandskundenScreen } from './screens/BestandskundenScreen'
+import { CallModeScreen } from './screens/CallModeScreen'
 
 async function autoEndStaleSessions(userId) {
   const eightHoursAgo = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString()
@@ -113,6 +114,9 @@ export default function App() {
   if (screen === 'bestandskunden') {
     return <BestandskundenScreen onBack={() => setScreen('pipeline')} />
   }
+  if (screen === 'call-mode') {
+    return <CallModeScreen onBack={() => setScreen('pipeline')} />
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -130,6 +134,7 @@ export default function App() {
           <PipelineScreen
             onContactSelect={c => { setSelectedContact(c); setScreen('contact') }}
             onAddBestandskunde={() => setScreen('bestandskunden')}
+            onStartCallMode={() => setScreen('call-mode')}
           />
         )}
         {screen === 'stats' && <StatsScreen userSettings={settingsHook.settings} />}

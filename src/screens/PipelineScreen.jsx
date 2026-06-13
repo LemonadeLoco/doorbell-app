@@ -60,7 +60,7 @@ function tomorrowStr() {
   return d.toISOString().split('T')[0]
 }
 
-export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
+export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCallMode }) {
   const [filter, setFilter]       = useState('Alle')
   const [search, setSearch]       = useState('')
   const [showAdd, setShowAdd]         = useState(false)
@@ -184,6 +184,20 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde }) {
       </div>
 
       <div className="flex-1 px-4 py-3 flex flex-col gap-2">
+        {/* Anruf-Modus entry */}
+        {onStartCallMode && (
+          <button
+            onClick={onStartCallMode}
+            className="pressable flex items-center gap-3 bg-blue-500 text-white rounded-2xl px-4 py-3 shadow-sm mb-1"
+          >
+            <span className="text-xl flex-shrink-0">📞</span>
+            <div className="flex-1 text-left">
+              <p className="font-bold text-sm">Anruf-Modus starten</p>
+              <p className="text-xs opacity-75">Bestandskunden systematisch abarbeiten</p>
+            </div>
+            <span className="text-lg opacity-60">›</span>
+          </button>
+        )}
         {loading ? (
           <p className="text-center text-gray-400 mt-10 text-sm">Laden...</p>
         ) : isSectioned ? (
