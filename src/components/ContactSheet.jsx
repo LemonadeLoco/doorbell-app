@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { PRODUCTS } from '../lib/constants'
 
-export function ContactSheet({ mode, onSave, onClose, getPosition, initialAddress = '' }) {
+export function ContactSheet({ mode, onSave, onClose, getPosition, initialAddress = '', initialApartment = '' }) {
   const isTermin        = mode === 'termin'
   const isWiedervorlage = mode === 'wiedervorlage'
-  const [form, setForm]       = useState({ name: '', phone: '', address: initialAddress, apartment: '', product: '', notes: '', appt_at: '', followup_at: '' })
+  const [form, setForm]       = useState({ name: '', phone: '', address: initialAddress, apartment: initialApartment, product: '', notes: '', appt_at: '', followup_at: '' })
   const [geoLoading, setGeoLoading] = useState(false)
   const sheetRef  = useRef(null)
   const startY    = useRef(0)

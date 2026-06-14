@@ -52,6 +52,15 @@ function nieWiederIcon() {
   })
 }
 
+function getDistanceMeters([lat1, lon1], [lat2, lon2]) {
+  const R = 6371000
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat/2)**2 +
+    Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+}
+
 function makeLayerGroup() {
   if (typeof L.markerClusterGroup === 'function') {
     return L.markerClusterGroup({ maxClusterRadius: 40, showCoverageOnHover: false })
@@ -88,6 +97,8 @@ export function DoorMap({ onClose, embedded = false }) {
   const layerRef = useRef(null)
   const userMarkerRef = useRef(null)
   const userLatLngRef = useRef(null)
+  const watchIdRef = useRef(null)
+  const currentPosRef = useRef(null)
 
   const [taps, setTaps] = useState([])
   const [profileMap, setProfileMap] = useState({})
@@ -99,6 +110,7 @@ export function DoorMap({ onClose, embedded = false }) {
   const [hiddenReps, setHiddenReps] = useState(new Set())
   const [mapReady, setMapReady] = useState(false)
   const [hasUserLocation, setHasUserLocation] = useState(false)
+  const [userPosition, setUserPosition] = useState(null)
 
   // Init map once on mount
   useEffect(() => {
@@ -111,41 +123,58 @@ export function DoorMap({ onClose, embedded = false }) {
     }).addTo(map)
     mapRef.current = map
     setMapReady(true)
-    return () => { map.remove(); mapRef.current = null; setMapReady(false) }
+    return () => { map.remove(); mapRef.current = null; userMarkerRef.current = null; setMapReady(false) }
   }, [])
 
-  // Fly to user location once map is ready
+  // GPS watcher — registers once, never re-runs
   useEffect(() => {
-    if (!mapReady || !mapRef.current) return
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords
-        userLatLngRef.current = [latitude, longitude]
-        setHasUserLocation(true)
-        mapRef.current.flyTo([latitude, longitude], 15, { duration: 1 })
+    if (!navigator.geolocation) return
 
-        if (userMarkerRef.current) {
-          try { userMarkerRef.current.remove() } catch (_) {}
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords
+        if (accuracy > 100) return // reject low-accuracy fixes
+        const newPos = [latitude, longitude]
+        if (currentPosRef.current) {
+          const dist = getDistanceMeters(currentPosRef.current, newPos)
+          if (dist < 3) return // ignore sub-3m jitter
         }
-        userMarkerRef.current = L.circleMarker([latitude, longitude], {
-          radius: 8,
-          fillColor: '#3B82F6',
-          color: '#ffffff',
-          weight: 3,
-          opacity: 1,
-          fillOpacity: 1,
-          className: 'user-location-dot',
-        })
-          .bindTooltip('Mein Standort', { permanent: false })
-          .addTo(mapRef.current)
+        currentPosRef.current = newPos
+        userLatLngRef.current = newPos
+        setHasUserLocation(true)
+        setUserPosition(newPos)
       },
-      () => {
-        // Permission denied — stay at Munich center
-        mapRef.current.setView(MUNICH, 12)
-      },
-      { enableHighAccuracy: true, timeout: 8000 }
+      (err) => console.warn('GPS:', err),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
     )
-  }, [mapReady]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    return () => {
+      if (watchIdRef.current !== null)
+        navigator.geolocation.clearWatch(watchIdRef.current)
+    }
+  }, []) // empty deps — registers once, never re-runs
+
+  // Create or move the user position marker when GPS or map readiness changes
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !userPosition) return
+
+    if (userMarkerRef.current) {
+      userMarkerRef.current.setLatLng(userPosition)
+    } else {
+      mapRef.current.flyTo(userPosition, 15, { duration: 1 })
+      userMarkerRef.current = L.circleMarker(userPosition, {
+        radius: 8,
+        fillColor: '#3B82F6',
+        color: '#ffffff',
+        weight: 3,
+        opacity: 1,
+        fillOpacity: 1,
+        className: 'user-location-dot',
+      })
+        .bindTooltip('Mein Standort', { permanent: false })
+        .addTo(mapRef.current)
+    }
+  }, [userPosition, mapReady])
 
   const centerOnUser = () => {
     if (!mapRef.current || !userLatLngRef.current) return

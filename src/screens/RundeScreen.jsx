@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { ContactSheet } from '../components/ContactSheet'
 import { Toast, useToast } from '../components/Toast'
 import { useGPS } from '../hooks/useGPS'
-import { reverseGeocode } from '../lib/geocode'
+import { reverseGeocode, reverseGeocodeDetailed } from '../lib/geocode'
 import { supabase } from '../lib/supabase'
 import { OFFLINE_TAPS_KEY } from '../lib/constants'
 
@@ -46,6 +46,19 @@ export function RundeScreen({ sessionHook }) {
   const endSessionRef = useRef(endSession)
   const { toast, show } = useToast()
   const { getPosition }           = useGPS()
+
+  // Address confirmation overlay state
+  const [addrOverlay, setAddrOverlay]         = useState(null) // null | 'termin' | 'kontakt' | 'wiedervorlage'
+  const [addrStreet, setAddrStreet]           = useState('')
+  const [addrHouseNumber, setAddrHouseNumber] = useState('')
+  const [addrApartment, setAddrApartment]     = useState('')
+  const [addrGeoLoading, setAddrGeoLoading]   = useState(false)
+  const [pendingInitialAddress, setPendingInitialAddress]   = useState(null)
+  const [pendingInitialApartment, setPendingInitialApartment] = useState('')
+  const lastConfirmedAddrRef = useRef(null) // { street, houseNumber } — cached for the round
+  const addrSheetRef    = useRef(null)
+  const addrDragStartY  = useRef(0)
+  const addrDragY       = useRef(0)
 
   // Keep endSession ref current so timeout callback always calls latest version
   useEffect(() => { endSessionRef.current = endSession }, [endSession])
@@ -225,6 +238,51 @@ export function RundeScreen({ sessionHook }) {
     } catch { show('Fehler beim Speichern') }
   }
 
+  const openAddrOverlay = (outcomeSheet) => {
+    const last = lastConfirmedAddrRef.current
+    setAddrStreet(last?.street ?? '')
+    setAddrHouseNumber(last?.houseNumber ?? '')
+    setAddrApartment('')
+    setAddrGeoLoading(false)
+    setAddrOverlay(outcomeSheet)
+
+    if (!last && navigator.geolocation) {
+      setAddrGeoLoading(true)
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const detail = await reverseGeocodeDetailed(pos.coords.latitude, pos.coords.longitude)
+          if (detail) {
+            setAddrStreet(prev => prev === '' ? (detail.street ?? '') : prev)
+            setAddrHouseNumber(prev => prev === '' ? (detail.houseNumber ?? '') : prev)
+          }
+          setAddrGeoLoading(false)
+        },
+        () => setAddrGeoLoading(false),
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+      )
+    }
+  }
+
+  const handleAddrConfirm = () => {
+    const street = addrStreet.trim()
+    const houseNumber = addrHouseNumber.trim()
+    lastConfirmedAddrRef.current = { street, houseNumber }
+    const combined = [street, houseNumber].filter(Boolean).join(' ')
+    const pending = addrOverlay
+    setAddrOverlay(null)
+    setPendingInitialAddress(combined || null)
+    setPendingInitialApartment(addrApartment.trim())
+    setSheet(pending)
+  }
+
+  const handleAddrSkip = () => {
+    const pending = addrOverlay
+    setAddrOverlay(null)
+    setPendingInitialAddress(null)
+    setPendingInitialApartment('')
+    setSheet(pending)
+  }
+
   const openStartModal = async () => {
     setGebietInput('')
     setShowSuggestions(false)
@@ -395,7 +453,8 @@ export function RundeScreen({ sessionHook }) {
                 haptic('light')
                 setCooldowns(prev => ({ ...prev, [o.outcome]: Date.now() + 600 }))
                 setTimeout(() => setCooldowns(prev => ({ ...prev, [o.outcome]: 0 })), 600)
-                if (o.sheet) setSheet(o.sheet)
+                if (o.sheet === 'nie_wieder') setSheet(o.sheet)
+                else if (o.sheet) openAddrOverlay(o.sheet)
                 else handleTap(o.outcome)
               }}
             >
@@ -440,13 +499,118 @@ export function RundeScreen({ sessionHook }) {
         </div>
       )}
 
+      {/* Address confirmation overlay */}
+      {addrOverlay && (
+        <div
+          className="fixed inset-0 z-40 flex items-end"
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={() => setAddrOverlay(null)}
+        >
+          <div
+            ref={addrSheetRef}
+            className="sheet-enter w-full bg-white rounded-t-2xl shadow-2xl"
+            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Drag handle */}
+            <div
+              className="flex justify-center pt-3 pb-2 cursor-grab select-none"
+              style={{ touchAction: 'none', minHeight: 36 }}
+              onTouchStart={e => {
+                addrDragStartY.current = e.touches[0].clientY
+                addrDragY.current = 0
+                if (addrSheetRef.current) addrSheetRef.current.style.transition = 'none'
+              }}
+              onTouchMove={e => {
+                e.preventDefault()
+                const diff = e.touches[0].clientY - addrDragStartY.current
+                addrDragY.current = diff
+                if (diff > 0 && addrSheetRef.current)
+                  addrSheetRef.current.style.transform = `translateY(${diff}px)`
+              }}
+              onTouchEnd={() => {
+                if (addrDragY.current > 80) {
+                  if (addrSheetRef.current) {
+                    addrSheetRef.current.style.transition = 'transform 0.2s ease-out'
+                    addrSheetRef.current.style.transform = 'translateY(100%)'
+                  }
+                  setTimeout(() => setAddrOverlay(null), 200)
+                } else if (addrSheetRef.current) {
+                  addrSheetRef.current.style.transition = 'transform 0.2s ease-out'
+                  addrSheetRef.current.style.transform = 'translateY(0)'
+                }
+                addrDragY.current = 0
+              }}
+            >
+              <div className="w-12 h-1.5 bg-gray-300 rounded-full" />
+            </div>
+
+            <div className="px-5 pb-2">
+              <h2 className="text-base font-bold text-gray-900 mb-4">
+                Adresse bestätigen
+                {addrGeoLoading && <span className="text-xs font-normal text-amber-400 ml-2">📍 lädt...</span>}
+              </h2>
+
+              <label className="block mb-3">
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Strasse</span>
+                <input
+                  type="text"
+                  className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
+                  value={addrStreet}
+                  onChange={e => setAddrStreet(e.target.value)}
+                  placeholder="z.B. Schellingstraße"
+                />
+              </label>
+
+              <label className="block mb-3">
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Hausnummer</span>
+                <input
+                  type="text"
+                  className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
+                  value={addrHouseNumber}
+                  onChange={e => setAddrHouseNumber(e.target.value)}
+                  placeholder="z.B. 42a"
+                  autoFocus={!addrHouseNumber}
+                />
+              </label>
+
+              <label className="block mb-4">
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Wohnungsnummer</span>
+                <input
+                  type="text"
+                  className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400"
+                  value={addrApartment}
+                  onChange={e => setAddrApartment(e.target.value)}
+                  placeholder="z.B. 3. OG links"
+                />
+              </label>
+
+              <button
+                className="pressable w-full py-4 rounded-2xl font-bold text-white text-base mb-3"
+                style={{ background: '#F59E0B' }}
+                onClick={handleAddrConfirm}
+              >
+                Übernehmen
+              </button>
+              <button
+                className="w-full py-2 text-gray-400 text-sm text-center"
+                onClick={handleAddrSkip}
+              >
+                Ohne Adresse speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Standard contact/termin/wiedervorlage sheets */}
       {sheet && sheet !== 'nie_wieder' && (
         <ContactSheet
           mode={sheet}
           onSave={handleSaveContact}
-          onClose={() => setSheet(null)}
-          getPosition={getPosition}
+          onClose={() => { setSheet(null); setPendingInitialAddress(null); setPendingInitialApartment('') }}
+          initialAddress={pendingInitialAddress ?? ''}
+          initialApartment={pendingInitialApartment}
         />
       )}
 
