@@ -4,7 +4,7 @@ import { LiveTeamFeed } from '../components/LiveTeamFeed'
 import { CallOutcomeOverlay } from '../components/CallOutcomeOverlay'
 import { DoorMap } from '../components/DoorMap'
 
-export function HomeScreen({ setScreen, sessionData, userSettings, onContactSelect }) {
+export function HomeScreen({ setScreen, sessionData, userSettings, onContactSelect, isAdmin, selectedSalesmanId }) {
   const [todayStats, setTodayStats] = useState({ doors: 0, convs: 0, contacts: 0, appts: 0 })
   const [todayAppts, setTodayAppts] = useState([])
   const [todayFollowups, setTodayFollowups] = useState([])
@@ -22,27 +22,29 @@ export function HomeScreen({ setScreen, sessionData, userSettings, onContactSele
   }
   const dateLabel = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })
 
-  useEffect(() => { loadAll() }, [])
+  useEffect(() => { loadAll() }, [isAdmin, selectedSalesmanId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const todayStart = () => { const d = new Date(); d.setHours(0,0,0,0); return d.toISOString() }
   const todayStr   = new Date().toISOString().split('T')[0]
 
+  const withUserFilter = (q) => isAdmin && selectedSalesmanId ? q.eq('user_id', selectedSalesmanId) : q
+
   const loadAll = async () => {
     const [callRes, apptRes, followupRes, tapRes, salesRes] = await Promise.all([
-      supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('status', 'anrufen'),
-      supabase.from('contacts')
+      withUserFilter(supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('status', 'anrufen')),
+      withUserFilter(supabase.from('contacts')
         .select('*')
         .eq('status', 'termin')
         .gte('appt_at', todayStart())
         .lte('appt_at', new Date(new Date().setHours(23,59,59,999)).toISOString())
-        .order('appt_at'),
-      supabase.from('contacts')
+        .order('appt_at')),
+      withUserFilter(supabase.from('contacts')
         .select('*')
         .eq('status', 'wiedervorlage')
         .lte('followup_at', todayStr)
-        .order('followup_at', { ascending: true }),
+        .order('followup_at', { ascending: true })),
       supabase.from('door_taps').select('outcome').gte('tapped_at', todayStart()),
-      supabase.from('contacts').select('sale_amount').eq('status', 'verkauft'),
+      withUserFilter(supabase.from('contacts').select('sale_amount').eq('status', 'verkauft')),
     ])
 
     setCallCount(callRes.count ?? 0)
@@ -51,7 +53,7 @@ export function HomeScreen({ setScreen, sessionData, userSettings, onContactSele
     setSalesRevenue((salesRes.data ?? []).reduce((s, c) => s + (parseFloat(c.sale_amount) || 0), 0))
 
     const taps = tapRes.data ?? []
-    const contactsRes = await supabase.from('contacts').select('status').gte('added_at', todayStart())
+    const contactsRes = await withUserFilter(supabase.from('contacts').select('status').gte('added_at', todayStart()))
     const cts = contactsRes.data ?? []
 
     const base = {

@@ -15,6 +15,9 @@ import { SettingsScreen } from './screens/SettingsScreen'
 import { BestandskundenScreen } from './screens/BestandskundenScreen'
 import { CallModeScreen } from './screens/CallModeScreen'
 
+const SALESMAN_KEY = 'doorbell_selected_salesman'
+const LUKAS_ID     = 'a0ed7ff1-0c39-4ddb-8045-ec904ce5afcb'
+
 async function autoEndStaleSessions(userId) {
   const eightHoursAgo = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString()
   const { data: stale } = await supabase
@@ -36,6 +39,14 @@ export default function App() {
   const [screen, setScreen]               = useState('home')
   const [selectedContact, setSelectedContact] = useState(null)
   const [staleSession, setStaleSession]   = useState(null)
+
+  // Admin context
+  const [isAdmin, setIsAdmin]                       = useState(false)
+  const [salesmen, setSalesmen]                     = useState([])
+  const [selectedSalesmanId, setSelectedSalesmanId] = useState(
+    () => localStorage.getItem(SALESMAN_KEY) ?? LUKAS_ID
+  )
+
   const sessionHook  = useSession()
   const settingsHook = useUserSettings()
   const { toast, show } = useToast()
@@ -45,6 +56,34 @@ export default function App() {
     const { data: listener } = supabase.auth.onAuthStateChange((_e, s) => setAuthUser(s?.user ?? null))
     return () => listener.subscription.unsubscribe()
   }, [])
+
+  // Load profile + salesmen list when user is known
+  useEffect(() => {
+    if (!authUser) { setIsAdmin(false); setSalesmen([]); return }
+    const loadProfile = async () => {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('id, display_name, is_admin')
+        .eq('id', authUser.id)
+        .maybeSingle()
+      const admin = prof?.is_admin ?? false
+      setIsAdmin(admin)
+      if (admin) {
+        const { data: s } = await supabase
+          .from('profiles')
+          .select('id, display_name')
+          .eq('is_admin', false)
+          .order('display_name')
+        setSalesmen(s ?? [])
+      }
+    }
+    loadProfile()
+  }, [authUser])
+
+  const handleSalesmanChange = (id) => {
+    setSelectedSalesmanId(id)
+    localStorage.setItem(SALESMAN_KEY, id)
+  }
 
   // On auth: auto-end sessions >8h old, then check for short-stale sessions to recover
   useEffect(() => {
@@ -115,7 +154,15 @@ export default function App() {
     return <BestandskundenScreen onBack={() => setScreen('pipeline')} />
   }
   if (screen === 'call-mode') {
-    return <CallModeScreen onBack={() => setScreen('pipeline')} />
+    return (
+      <CallModeScreen
+        onBack={() => setScreen('pipeline')}
+        isAdmin={isAdmin}
+        salesmen={salesmen}
+        selectedSalesmanId={selectedSalesmanId}
+        onSalesmanChange={handleSalesmanChange}
+      />
+    )
   }
 
   return (
@@ -127,6 +174,8 @@ export default function App() {
             sessionData={sessionHook}
             userSettings={settingsHook.settings}
             onContactSelect={c => { setSelectedContact(c); setScreen('contact') }}
+            isAdmin={isAdmin}
+            selectedSalesmanId={selectedSalesmanId}
           />
         )}
         {screen === 'runde'    && <RundeScreen sessionHook={sessionHook} />}
@@ -135,6 +184,10 @@ export default function App() {
             onContactSelect={c => { setSelectedContact(c); setScreen('contact') }}
             onAddBestandskunde={() => setScreen('bestandskunden')}
             onStartCallMode={() => setScreen('call-mode')}
+            isAdmin={isAdmin}
+            salesmen={salesmen}
+            selectedSalesmanId={selectedSalesmanId}
+            onSalesmanChange={handleSalesmanChange}
           />
         )}
         {screen === 'stats' && <StatsScreen userSettings={settingsHook.settings} />}

@@ -60,18 +60,43 @@ function tomorrowStr() {
   return d.toISOString().split('T')[0]
 }
 
-export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCallMode }) {
+// ─── Admin salesman switcher ──────────────────────────────────────────────────
+function AdminSwitcher({ salesmen, selectedId, onChange }) {
+  if (!salesmen?.length) return null
+  return (
+    <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+      {salesmen.map(s => (
+        <button
+          key={s.id}
+          className="pressable flex-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+          style={selectedId === s.id
+            ? { background: '#F59E0B', color: '#fff' }
+            : { color: '#9CA3AF' }}
+          onClick={() => onChange(s.id)}
+        >
+          {s.display_name}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCallMode, isAdmin, salesmen, selectedSalesmanId, onSalesmanChange }) {
   const [filter, setFilter]       = useState('Alle')
   const [search, setSearch]       = useState('')
   const [showAdd, setShowAdd]         = useState(false)
   const [showImport, setShowImport]   = useState(false)
+  const [showManualBK, setShowManualBK] = useState(false)
   const [compactView, setCompactView] = useState(false)
   const [showFABMenu, setShowFABMenu] = useState(false)
   const [showIntentChooser, setShowIntentChooser] = useState(false)
   const [intentStatus, setIntentStatus] = useState('anrufen')
   const [archivExpanded, setArchivExpanded] = useState(false)
   const [callOverlayContact, setCallOverlayContact] = useState(null)
-  const { contacts, loading, addContact } = useContacts()
+
+  // When admin, filter contacts by selectedSalesmanId; regular users let RLS handle it
+  const salesmanFilter = isAdmin ? selectedSalesmanId : null
+  const { contacts, loading, addContact } = useContacts(null, salesmanFilter)
 
   const today    = todayStr()
   const tomorrow = tomorrowStr()
@@ -157,6 +182,14 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
             )}
           </div>
         </div>
+
+        {/* Admin salesman switcher */}
+        {isAdmin && salesmen.length > 0 && (
+          <div className="mb-3">
+            <AdminSwitcher salesmen={salesmen} selectedId={selectedSalesmanId} onChange={onSalesmanChange} />
+          </div>
+        )}
+
         <input type="search" className="w-full bg-gray-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none"
           placeholder="Suchen..." value={search} onChange={e => setSearch(e.target.value)} />
       </div>
@@ -205,7 +238,7 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
             {urgent.length === 0 && active.length === 0 && archived.length === 0 ? (
               <div className="text-center mt-16">
                 <p className="text-4xl mb-3">📭</p>
-                <p className="text-gray-500 font-semibold text-sm">Noch keine Kontakte</p>
+                <p className="text-gray-500 font-semibold text-sm">Keine Kontakte vorhanden</p>
                 <button className="mt-4 px-5 py-2.5 bg-amber-400 text-white text-sm font-bold rounded-xl pressable" onClick={() => { setIntentStatus('anrufen'); setShowIntentChooser(true) }}>+ Kontakt hinzufügen</button>
               </div>
             ) : (
@@ -249,7 +282,7 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
         ) : sorted.length === 0 ? (
           <div className="text-center mt-16">
             <p className="text-4xl mb-3">📭</p>
-            <p className="text-gray-500 font-semibold text-sm">Noch keine Kontakte</p>
+            <p className="text-gray-500 font-semibold text-sm">Keine Kontakte vorhanden</p>
             {isBK
               ? <button className="mt-4 px-5 py-2.5 bg-purple-500 text-white text-sm font-bold rounded-xl pressable" onClick={onAddBestandskunde}>+ Bestandskunden hinzufügen</button>
               : <button className="mt-4 px-5 py-2.5 bg-amber-400 text-white text-sm font-bold rounded-xl pressable" onClick={() => { setIntentStatus('anrufen'); setShowIntentChooser(true) }}>+ Kontakt hinzufügen</button>
@@ -280,6 +313,12 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
               onClick={() => { setShowFABMenu(false); setShowImport(true) }}
             >
               📄 PDF-Verträge importieren
+            </button>
+            <button
+              className="pressable flex items-center gap-2 bg-white rounded-2xl px-4 py-3 shadow-lg text-sm font-semibold text-gray-700"
+              onClick={() => { setShowFABMenu(false); setShowManualBK(true) }}
+            >
+              🏠 Bestandskunde eingeben
             </button>
             <button
               className="pressable flex items-center gap-2 bg-white rounded-2xl px-4 py-3 shadow-lg text-sm font-semibold text-gray-700"
@@ -325,6 +364,18 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
           contacts={contacts}
           onClose={() => setShowImport(false)}
           onImported={() => setShowImport(false)}
+          isAdmin={isAdmin}
+          salesmen={salesmen}
+          defaultSalesmanId={selectedSalesmanId}
+        />
+      )}
+
+      {showManualBK && (
+        <ManualBestandskundeForm
+          onClose={() => setShowManualBK(false)}
+          isAdmin={isAdmin}
+          salesmen={salesmen}
+          defaultSalesmanId={selectedSalesmanId}
         />
       )}
 
@@ -660,16 +711,227 @@ function AddContactModal({ onClose, onSave, initialStatus = 'anrufen' }) {
   )
 }
 
+// ─── Manual Bestandskunde Entry Form ─────────────────────────────────────────
+
+function ManualBestandskundeForm({ onClose, isAdmin, salesmen, defaultSalesmanId }) {
+  const [form, setForm] = useState({
+    name: '',
+    phone: '',
+    phone2: '',
+    address: '',
+    targetUserId: defaultSalesmanId ?? null,
+    product: '',
+    kaufdatum: '',
+    auftragsnummer: '',
+    kaufbetrag: '',
+    notes: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [dupWarning, setDupWarning] = useState(null) // auftragsnummer that duped
+  const [errors, setErrors] = useState({})
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const validate = () => {
+    const e = {}
+    if (!form.name.trim())    e.name = true
+    if (!form.phone.trim())   e.phone = true
+    if (!form.address.trim()) e.address = true
+    setErrors(e)
+    return Object.keys(e).length === 0
+  }
+
+  const doSave = async (force = false) => {
+    if (!validate()) return
+    setSaving(true)
+    try {
+      // Dedup check on Auftragsnummer
+      if (form.auftragsnummer.trim() && !force) {
+        const { data: existing } = await supabase
+          .from('purchases')
+          .select('id')
+          .eq('order_no', form.auftragsnummer.trim())
+          .maybeSingle()
+        if (existing) {
+          setDupWarning(form.auftragsnummer.trim())
+          setSaving(false)
+          return
+        }
+      }
+
+      const { data: authData } = await supabase.auth.getSession()
+      const userId = (isAdmin && form.targetUserId) ? form.targetUserId : (authData.session?.user?.id ?? null)
+
+      const { data: contact, error: cErr } = await supabase
+        .from('contacts')
+        .insert({
+          name:           form.name.trim(),
+          phone:          form.phone.trim() || null,
+          phone2:         form.phone2.trim() || null,
+          address:        form.address.trim() || null,
+          product:        form.product || null,
+          kaufdatum:      form.kaufdatum || null,
+          kaufbetrag:     form.kaufbetrag ? parseFloat(form.kaufbetrag) : null,
+          auftragsnummer: form.auftragsnummer.trim() || null,
+          notes:          form.notes.trim() || null,
+          source:         'anruf',
+          status:         'anrufen',
+          user_id:        userId,
+        })
+        .select()
+        .single()
+
+      if (cErr) throw cErr
+
+      if (form.product || form.kaufdatum || form.kaufbetrag || form.auftragsnummer) {
+        await supabase.from('purchases').insert({
+          contact_id:   contact.id,
+          product:      form.product || null,
+          product_raw:  form.product || null,
+          amount:       form.kaufbetrag ? parseFloat(form.kaufbetrag) : null,
+          purchased_at: form.kaufdatum || null,
+          order_no:     form.auftragsnummer.trim() || null,
+          origin:       'import',
+        })
+      }
+
+      onClose()
+    } catch (err) {
+      console.error('ManualBK save error:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const fieldClass = (key) =>
+    `mt-1 w-full border rounded-xl px-3 py-3 text-sm focus:outline-none ${errors[key] ? 'border-red-400' : 'border-gray-200 focus:border-amber-400'}`
+
+  return (
+    <div className="fixed inset-0 z-40 bg-white flex flex-col">
+      {/* Header */}
+      <div className="bg-white px-4 pt-5 pb-3 border-b border-gray-100 flex items-center gap-3 flex-shrink-0">
+        <button className="pressable text-amber-500 font-bold text-lg" onClick={onClose}>✕</button>
+        <h2 className="text-base font-extrabold text-gray-900 flex-1">Bestandskunde erfassen</h2>
+        <button
+          className="pressable px-4 py-2 rounded-xl bg-amber-400 text-white text-sm font-bold disabled:opacity-50"
+          disabled={saving}
+          onClick={() => doSave(false)}
+        >
+          {saving ? '...' : 'Speichern'}
+        </button>
+      </div>
+
+      {/* Dup warning bar */}
+      {dupWarning && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 flex items-center gap-3 flex-shrink-0">
+          <span className="text-sm text-amber-800 flex-1">Auftragsnummer {dupWarning} bereits vorhanden. Trotzdem speichern?</span>
+          <button className="pressable text-xs font-bold text-red-600 whitespace-nowrap" onClick={() => { setDupWarning(null); doSave(true) }}>Ja</button>
+          <button className="pressable text-xs font-bold text-gray-500 whitespace-nowrap" onClick={() => setDupWarning(null)}>Nein</button>
+        </div>
+      )}
+
+      {/* Scrollable form body */}
+      <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div className="max-w-xl mx-auto flex flex-col gap-4">
+
+          <label className="block">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Name *</span>
+            <input type="text" className={fieldClass('name')} value={form.name} onChange={e => set('name', e.target.value)} placeholder="Max Mustermann" />
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Telefon 1 *</span>
+            <input type="tel" className={fieldClass('phone')} value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+49 ..." />
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Telefon 2</span>
+            <input type="tel" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400" value={form.phone2} onChange={e => set('phone2', e.target.value)} placeholder="Optional" />
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Adresse *</span>
+            <input type="text" className={fieldClass('address')} value={form.address} onChange={e => set('address', e.target.value)} placeholder="Musterstr. 1, 12345 Stadt" />
+          </label>
+
+          {/* Für wen — only shown when admin */}
+          {isAdmin && salesmen.length > 0 && (
+            <div>
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Für wen</span>
+              <div className="mt-1 flex gap-2">
+                {salesmen.map(s => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    className="pressable flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all"
+                    style={form.targetUserId === s.id
+                      ? { background: '#F59E0B', color: '#fff', borderColor: '#F59E0B' }
+                      : { background: '#fff', color: '#9CA3AF', borderColor: '#E5E7EB' }}
+                    onClick={() => set('targetUserId', s.id)}
+                  >
+                    {s.display_name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <label className="block">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Produkt</span>
+            <select className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm bg-white focus:outline-none" value={form.product} onChange={e => set('product', e.target.value)}>
+              <option value="">— wählen —</option>
+              {PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Kaufdatum</span>
+            <input type="date" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400" value={form.kaufdatum} onChange={e => set('kaufdatum', e.target.value)} />
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Auftragsnummer</span>
+            <input type="text" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400" value={form.auftragsnummer} onChange={e => set('auftragsnummer', e.target.value)} placeholder="LA..." />
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Kaufbetrag (€)</span>
+            <input type="number" min="0" step="0.01" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400" value={form.kaufbetrag} onChange={e => set('kaufbetrag', e.target.value)} placeholder="0,00" />
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Notizen</span>
+            <textarea rows={3} className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none resize-none" value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Optional..." />
+          </label>
+
+          <button
+            className="pressable w-full py-4 rounded-2xl font-bold text-white bg-amber-400 disabled:opacity-50 mt-2"
+            disabled={saving}
+            onClick={() => doSave(false)}
+          >
+            {saving ? 'Speichern...' : 'Speichern'}
+          </button>
+          <button className="pressable w-full py-3 rounded-2xl text-gray-500 text-sm font-medium bg-gray-100" onClick={onClose}>
+            Abbrechen
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── PDF Import Flow ──────────────────────────────────────────────────────────
 
-function PdfImportFlow({ contacts: existingContacts, onClose, onImported }) {
-  const [stage, setStage]       = useState('idle')
-  const [progress, setProgress] = useState({ done: 0, total: 0 })
+function PdfImportFlow({ contacts: existingContacts, onClose, onImported, isAdmin, salesmen, defaultSalesmanId }) {
+  const [stage, setStage]         = useState('idle')
+  const [progress, setProgress]   = useState({ done: 0, total: 0 })
   const [extracted, setExtracted] = useState([])
-  const [selected, setSelected] = useState({})
+  const [selected, setSelected]   = useState({})
+  const [targetUserId, setTargetUserId] = useState(defaultSalesmanId ?? null)
+  const [summary, setSummary]     = useState(null)
   const fileRef = useRef(null)
 
-  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+  const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL
   const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
   const processFiles = async (files) => {
@@ -694,10 +956,15 @@ function PdfImportFlow({ contacts: existingContacts, onClose, onImported }) {
       setProgress({ done: i + 1, total: files.length })
     }
 
+    // Flag duplicates by phone or auftragsnummer
     const withDupes = results.map(r => {
-      if (!r.success || !r.data?.telefon) return r
-      const dupe = existingContacts.find(c => c.phone && c.phone.replace(/\s/g,'') === r.data.telefon.replace(/\s/g,''))
-      return { ...r, duplicate: dupe ?? null }
+      if (!r.success || !r.data) return r
+      const d = r.data
+      const primaryPhone = d.phone_privat ?? null
+      const dupByPhone = primaryPhone
+        ? existingContacts.find(c => c.phone && c.phone.replace(/\s/g,'') === primaryPhone.replace(/\s/g,''))
+        : null
+      return { ...r, duplicate: dupByPhone ?? null }
     })
 
     const sel = {}
@@ -713,26 +980,79 @@ function PdfImportFlow({ contacts: existingContacts, onClose, onImported }) {
   }
 
   const importSelected = async () => {
+    setStage('loading')
+    setProgress({ done: 0, total: 0 })
+
     const toImport = extracted.filter((r, i) => r.success && selected[i])
     const { data: authData } = await supabase.auth.getSession()
-    const userId = authData.session?.user?.id ?? null
+    const userId = (isAdmin && targetUserId) ? targetUserId : (authData.session?.user?.id ?? null)
+
+    let contactsCreated = 0, contactsMatched = 0, purchasesInserted = 0, skipped = 0
+
     for (const r of toImport) {
       const d = r.data
-      await supabase.from('contacts').insert({
-        name:             [d.nachname, d.vorname].filter(Boolean).join(', ') || 'Unbekannt',
-        phone:            d.telefon ?? null,
-        address:          [d.strasse, d.plz, d.ort].filter(Boolean).join(', ') || null,
-        product:          d.produkt ?? null,
-        original_produkt: d.produkt ?? null,
-        kaufdatum:        d.datum ?? null,
-        kaufbetrag:       d.vereinbarter_preis ?? null,
-        auftragsnummer:   d.auftragsnummer ?? null,
-        source:           'anruf',
-        status:           'anrufen',
-        user_id:          userId,
+
+      // Dedup by order number
+      if (d.auftragsnummer) {
+        const { data: existingPurchase } = await supabase
+          .from('purchases')
+          .select('id')
+          .eq('order_no', d.auftragsnummer)
+          .maybeSingle()
+        if (existingPurchase) {
+          skipped++
+          continue
+        }
+      }
+
+      const name = [d.nachname, d.vorname].filter(Boolean).join(', ') || 'Unbekannt'
+
+      // Find or create contact
+      const { data: existingContact } = await supabase
+        .from('contacts')
+        .select('id')
+        .ilike('name', name)
+        .maybeSingle()
+
+      let contactId
+      if (existingContact) {
+        contactId = existingContact.id
+        contactsMatched++
+      } else {
+        const { data: newContact, error: cErr } = await supabase.from('contacts').insert({
+          name,
+          phone:            d.phone_privat ?? null,
+          phone2:           d.phone_firma ?? null,
+          address:          [d.strasse, d.plz, d.ort].filter(Boolean).join(', ') || null,
+          product:          d.produkt ?? null,
+          original_produkt: d.produkt ?? null,
+          kaufdatum:        d.datum ?? null,
+          kaufbetrag:       d.vereinbarter_preis ?? null,
+          auftragsnummer:   d.auftragsnummer ?? null,
+          source:           'anruf',
+          status:           'anrufen',
+          user_id:          userId,
+        }).select().single()
+        if (cErr) { skipped++; continue }
+        contactId = newContact.id
+        contactsCreated++
+      }
+
+      // Insert purchase row
+      const { error: pErr } = await supabase.from('purchases').insert({
+        contact_id:   contactId,
+        product:      d.produkt ?? null,
+        product_raw:  d.produkt ?? null,
+        amount:       d.vereinbarter_preis ?? null,
+        purchased_at: d.datum ?? null,
+        order_no:     d.auftragsnummer ?? null,
+        origin:       'import',
       })
+      if (!pErr) purchasesInserted++
     }
-    onImported()
+
+    setSummary({ contactsCreated, contactsMatched, purchasesInserted, skipped })
+    setStage('summary')
   }
 
   const selectedCount = Object.values(selected).filter(Boolean).length
@@ -743,7 +1063,30 @@ function PdfImportFlow({ contacts: existingContacts, onClose, onImported }) {
         <div className="sheet-enter w-full bg-white rounded-t-2xl shadow-2xl p-5 pb-8" onClick={e => e.stopPropagation()}>
           <div className="w-10 h-1 bg-gray-300 rounded mx-auto mb-4" />
           <h2 className="text-base font-bold text-gray-900 mb-2">PDF-Verträge importieren</h2>
-          <p className="text-sm text-gray-500 mb-5">Wähle eine oder mehrere "Verbindliche Bestellung" PDFs aus.</p>
+          <p className="text-sm text-gray-500 mb-4">Wähle eine oder mehrere "Verbindliche Bestellung" PDFs aus.</p>
+
+          {/* For-whom toggle in idle stage */}
+          {isAdmin && salesmen.length > 0 && (
+            <div className="mb-5">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Für wen</p>
+              <div className="flex gap-2">
+                {salesmen.map(s => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    className="pressable flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all"
+                    style={targetUserId === s.id
+                      ? { background: '#F59E0B', color: '#fff', borderColor: '#F59E0B' }
+                      : { background: '#fff', color: '#9CA3AF', borderColor: '#E5E7EB' }}
+                    onClick={() => setTargetUserId(s.id)}
+                  >
+                    {s.display_name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <input ref={fileRef} type="file" accept="application/pdf" multiple className="hidden" onChange={handleFileChange} />
           <button className="pressable w-full py-4 rounded-2xl font-bold text-white bg-purple-500" onClick={() => fileRef.current?.click()}>
             📄 Dateien auswählen
@@ -759,7 +1102,26 @@ function PdfImportFlow({ contacts: existingContacts, onClose, onImported }) {
         <div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center">
           <div className="w-10 h-10 rounded-full border-4 border-purple-400 border-t-transparent animate-spin mx-auto mb-4" />
           <p className="font-bold text-gray-900">Lese Verträge...</p>
-          <p className="text-sm text-gray-400 mt-1">({progress.done}/{progress.total})</p>
+          {progress.total > 0 && <p className="text-sm text-gray-400 mt-1">({progress.done}/{progress.total})</p>}
+        </div>
+      </div>
+    )
+  }
+
+  if (stage === 'summary' && summary) {
+    return (
+      <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-6">
+        <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
+          <p className="text-lg font-extrabold text-gray-900 mb-4">Import abgeschlossen</p>
+          <div className="flex flex-col gap-2 mb-5">
+            <div className="flex justify-between text-sm"><span className="text-gray-500">Neue Kontakte</span><span className="font-bold text-gray-900">{summary.contactsCreated}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-gray-500">Kontakte gefunden</span><span className="font-bold text-gray-900">{summary.contactsMatched}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-gray-500">Käufe eingetragen</span><span className="font-bold text-gray-900">{summary.purchasesInserted}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-gray-500">Übersprungen (Duplikat)</span><span className="font-bold text-gray-900">{summary.skipped}</span></div>
+          </div>
+          <button className="pressable w-full py-3.5 rounded-2xl bg-amber-400 text-white font-bold" onClick={onImported}>
+            Fertig
+          </button>
         </div>
       </div>
     )
@@ -788,6 +1150,7 @@ function PdfImportFlow({ contacts: existingContacts, onClose, onImported }) {
                     <p className="font-bold text-gray-900 text-sm">{r.data.nachname}{r.data.vorname ? `, ${r.data.vorname}` : ''}</p>
                     <p className="text-xs text-gray-500">{[r.data.strasse, r.data.plz, r.data.ort].filter(Boolean).join(', ')}</p>
                     <p className="text-xs text-gray-400">{r.data.produkt} · {r.data.vereinbarter_preis ? `€${r.data.vereinbarter_preis.toLocaleString('de-DE')}` : '—'} · {r.data.datum}</p>
+                    {r.data.phone_privat && <p className="text-xs text-gray-400">📞 {r.data.phone_privat}{r.data.phone_firma ? ` · ${r.data.phone_firma}` : ''}</p>}
                     {r.duplicate && (
                       <p className="text-xs text-amber-700 mt-1.5 bg-amber-50 rounded-lg px-2 py-1">
                         ⚠️ Mögliches Duplikat: {r.duplicate.name} bereits in Pipeline (Status: {r.duplicate.status})

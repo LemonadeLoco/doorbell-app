@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
-export function useContacts(filterStatus = null) {
+export function useContacts(filterStatus = null, salesmanId = null) {
   const [contacts, setContacts] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -9,6 +9,7 @@ export function useContacts(filterStatus = null) {
     setLoading(true)
     let q = supabase.from('contacts').select('*').order('added_at', { ascending: false })
     if (filterStatus) q = q.eq('status', filterStatus)
+    if (salesmanId) q = q.eq('user_id', salesmanId)
     const { data } = await q
     setContacts(data ?? [])
     setLoading(false)
@@ -21,11 +22,11 @@ export function useContacts(filterStatus = null) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'contacts' }, fetch)
       .subscribe()
     return () => supabase.removeChannel(channel)
-  }, [filterStatus])
+  }, [filterStatus, salesmanId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const addContact = async (contact) => {
+  const addContact = async (contact, targetUserId = null) => {
     const { data: authData } = await supabase.auth.getSession()
-    const userId = authData.session?.user?.id ?? null
+    const userId = targetUserId ?? authData.session?.user?.id ?? null
     const { data, error } = await supabase.from('contacts').insert({ ...contact, user_id: userId }).select().single()
     if (error) throw error
     return data

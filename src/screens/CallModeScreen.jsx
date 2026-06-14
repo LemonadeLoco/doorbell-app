@@ -249,8 +249,29 @@ function ActiveContactCard({ c, purchases, callHistory, index, total, onPrev, on
   )
 }
 
+// ─── Admin salesman switcher ──────────────────────────────────────────────────
+function AdminSwitcher({ salesmen, selectedId, onChange }) {
+  if (!salesmen?.length) return null
+  return (
+    <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+      {salesmen.map(s => (
+        <button
+          key={s.id}
+          className="pressable flex-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+          style={selectedId === s.id
+            ? { background: '#F59E0B', color: '#fff' }
+            : { color: '#9CA3AF' }}
+          onClick={() => onChange(s.id)}
+        >
+          {s.display_name}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ─── Main screen ──────────────────────────────────────────────────────────────
-export function CallModeScreen({ onBack }) {
+export function CallModeScreen({ onBack, isAdmin, salesmen, selectedSalesmanId, onSalesmanChange }) {
   // Queue data
   const [queue, setQueue]                   = useState([])
   const [cooldownContacts, setCooldownContacts] = useState([])
@@ -304,15 +325,19 @@ export function CallModeScreen({ onBack }) {
     }
   }, [])
 
-  // ── Load all data on mount ───────────────────────────────────────────────────
+  // ── Load all data on mount (and when selectedSalesmanId changes for admin) ───
   useEffect(() => {
     const run = async () => {
       setLoading(true)
-      const [qRes, cRes, dRes] = await Promise.all([
-        supabase.from('call_queue').select('*'),
-        supabase.from('call_queue_on_cooldown').select('*'),
-        supabase.from('call_queue_dropped').select('*'),
-      ])
+      let qQ = supabase.from('call_queue').select('*')
+      let cQ = supabase.from('call_queue_on_cooldown').select('*')
+      let dQ = supabase.from('call_queue_dropped').select('*')
+      if (isAdmin && selectedSalesmanId) {
+        qQ = qQ.eq('user_id', selectedSalesmanId)
+        cQ = cQ.eq('user_id', selectedSalesmanId)
+        dQ = dQ.eq('user_id', selectedSalesmanId)
+      }
+      const [qRes, cRes, dRes] = await Promise.all([qQ, cQ, dQ])
       const q = qRes.data ?? []
       setQueue(q)
       setInitialTotal(q.length)
@@ -330,7 +355,7 @@ export function CallModeScreen({ onBack }) {
       setLoading(false)
     }
     run()
-  }, [])
+  }, [isAdmin, selectedSalesmanId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reload just the two side-sections (after manual disposition)
   const reloadSections = useCallback(async () => {
@@ -507,24 +532,29 @@ export function CallModeScreen({ onBack }) {
     <div className="fixed inset-0 bg-gray-50 flex flex-col z-30">
 
       {/* Header */}
-      <div className="bg-white px-4 pt-5 pb-3 shadow-sm flex items-center gap-3 flex-shrink-0">
-        <button className="pressable text-amber-500 font-bold text-xl px-1" onClick={onBack}>←</button>
-        <div className="flex-1">
-          <h1 className="text-base font-extrabold text-gray-900">
-            {isManualMode ? 'Manuell — Kürzlich gekauft' : 'Anruf-Modus'}
-          </h1>
-        </div>
-        {/* Progress — only for main queue */}
-        {!isManualMode && initialTotal > 0 && (
-          <div className="flex flex-col items-end">
-            <span className="text-sm font-extrabold text-gray-700">{index + 1} / {initialTotal}</span>
-            <div className="mt-1 h-1.5 w-24 bg-gray-100 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-amber-400 rounded-full transition-all duration-300"
-                style={{ width: `${Math.round((index / Math.max(initialTotal, 1)) * 100)}%` }}
-              />
-            </div>
+      <div className="bg-white px-4 pt-5 pb-3 shadow-sm flex-shrink-0">
+        <div className="flex items-center gap-3 mb-2">
+          <button className="pressable text-amber-500 font-bold text-xl px-1" onClick={onBack}>←</button>
+          <div className="flex-1">
+            <h1 className="text-base font-extrabold text-gray-900">
+              {isManualMode ? 'Manuell — Kürzlich gekauft' : 'Anruf-Modus'}
+            </h1>
           </div>
+          {/* Progress — only for main queue */}
+          {!isManualMode && initialTotal > 0 && (
+            <div className="flex flex-col items-end">
+              <span className="text-sm font-extrabold text-gray-700">{index + 1} / {initialTotal}</span>
+              <div className="mt-1 h-1.5 w-24 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-amber-400 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.round((index / Math.max(initialTotal, 1)) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+        {isAdmin && salesmen?.length > 0 && (
+          <AdminSwitcher salesmen={salesmen} selectedId={selectedSalesmanId} onChange={id => { onSalesmanChange(id); setIndex(0) }} />
         )}
       </div>
 
