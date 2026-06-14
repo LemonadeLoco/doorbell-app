@@ -176,6 +176,7 @@ export default function App() {
             onContactSelect={c => { setSelectedContact(c); setScreen('contact') }}
             isAdmin={isAdmin}
             selectedSalesmanId={selectedSalesmanId}
+            authUser={authUser}
           />
         )}
         {screen === 'runde'    && <RundeScreen sessionHook={sessionHook} />}

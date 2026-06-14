@@ -4,7 +4,7 @@ import { LiveTeamFeed } from '../components/LiveTeamFeed'
 import { CallOutcomeOverlay } from '../components/CallOutcomeOverlay'
 import { DoorMap } from '../components/DoorMap'
 
-export function HomeScreen({ setScreen, sessionData, userSettings, onContactSelect, isAdmin, selectedSalesmanId }) {
+export function HomeScreen({ setScreen, sessionData, userSettings, onContactSelect, isAdmin, selectedSalesmanId, authUser }) {
   const [todayStats, setTodayStats] = useState({ doors: 0, convs: 0, contacts: 0, appts: 0 })
   const [todayAppts, setTodayAppts] = useState([])
   const [todayFollowups, setTodayFollowups] = useState([])
@@ -13,21 +13,27 @@ export function HomeScreen({ setScreen, sessionData, userSettings, onContactSele
   const [todayApptCount, setTodayApptCount] = useState(0)
   const [callOverlayContact, setCallOverlayContact] = useState(null)
   const [showMap, setShowMap] = useState(false)
+  const [displayName, setDisplayName] = useState(null)
 
-  const greeting = () => {
-    const h = new Date().getHours()
-    if (h < 12) return 'Guten Morgen'
-    if (h < 18) return 'Guten Tag'
-    return 'Guten Abend'
-  }
   const dateLabel = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })
+
+  useEffect(() => {
+    if (!authUser?.id) return
+    supabase.from('profiles').select('display_name').eq('id', authUser.id).single()
+      .then(({ data }) => { if (data?.display_name) setDisplayName(data.display_name) })
+  }, [authUser?.id])
 
   useEffect(() => { loadAll() }, [isAdmin, selectedSalesmanId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const todayStart = () => { const d = new Date(); d.setHours(0,0,0,0); return d.toISOString() }
   const todayStr   = new Date().toISOString().split('T')[0]
 
-  const withUserFilter = (q) => isAdmin && selectedSalesmanId ? q.eq('user_id', selectedSalesmanId) : q
+  // Always scope queries: admin uses selectedSalesmanId, non-admin always uses own auth.uid()
+  const withUserFilter = (q) => {
+    if (isAdmin && selectedSalesmanId) return q.eq('user_id', selectedSalesmanId)
+    if (authUser?.id) return q.eq('user_id', authUser.id)
+    return q
+  }
 
   const loadAll = async () => {
     const [callRes, apptRes, followupRes, tapRes, salesRes] = await Promise.all([
@@ -95,7 +101,7 @@ export function HomeScreen({ setScreen, sessionData, userSettings, onContactSele
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs text-gray-400 uppercase tracking-wider">{dateLabel}</p>
-          <h1 className="text-xl font-extrabold text-gray-900">{greeting()} 👋</h1>
+          {displayName && <h1 className="text-xl font-extrabold text-gray-900">Hey {displayName} 👋</h1>}
         </div>
         <div className="flex items-center gap-2">
           <button

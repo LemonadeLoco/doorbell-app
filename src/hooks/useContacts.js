@@ -7,9 +7,15 @@ export function useContacts(filterStatus = null, salesmanId = null) {
 
   const fetch = async () => {
     setLoading(true)
+    // Always filter by user_id: admin passes a specific salesmanId; non-admin uses own auth.uid()
+    let effectiveUserId = salesmanId
+    if (!effectiveUserId) {
+      const { data: { user } } = await supabase.auth.getUser()
+      effectiveUserId = user?.id ?? null
+    }
     let q = supabase.from('contacts').select('*').order('added_at', { ascending: false })
     if (filterStatus) q = q.eq('status', filterStatus)
-    if (salesmanId) q = q.eq('user_id', salesmanId)
+    if (effectiveUserId) q = q.eq('user_id', effectiveUserId)
     const { data } = await q
     setContacts(data ?? [])
     setLoading(false)

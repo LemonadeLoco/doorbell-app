@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
 export function useUserSettings() {
-  const [settings, setSettings] = useState({ revenue_target: 700000, revenue_base: 375000 })
+  const [settings, setSettings] = useState({ revenue_target: 0, revenue_base: 0 })
   const [userId, setUserId] = useState(null)
   const [loaded, setLoaded] = useState(false)
 
