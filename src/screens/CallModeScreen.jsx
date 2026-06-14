@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { CallOutcomeOverlay } from '../components/CallOutcomeOverlay'
+import { Toast, useToast } from '../components/Toast'
 
 const CALL_MODE_KEY = 'doorbell_call_mode_pos'
 
@@ -82,7 +84,7 @@ function CollapsibleSection({ title, count, expanded, onToggle, accentColor = '#
 }
 
 // ─── Single card for active contact ──────────────────────────────────────────
-function ActiveContactCard({ c, purchases, callHistory }) {
+function ActiveContactCard({ c, purchases, callHistory, index, total, onPrev, onNext, onCallInitiated }) {
   return (
     <>
       {/* Identity */}
@@ -131,16 +133,46 @@ function ActiveContactCard({ c, purchases, callHistory }) {
             )}
           </div>
         )}
+
+        {/* Next / Back navigation row */}
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+          <button
+            className="pressable text-sm text-gray-400 font-medium disabled:opacity-30"
+            disabled={index <= 0}
+            onClick={onPrev}
+          >
+            ← Zurück
+          </button>
+          <span className="text-xs text-gray-400">{index + 1} / {total}</span>
+          <button
+            className="pressable text-sm text-gray-400 font-medium"
+            onClick={onNext}
+          >
+            Weiter →
+          </button>
+        </div>
       </div>
 
-      {/* Big call button */}
+      {/* Call button(s) */}
       {c.phone && (
-        <a
-          href={`tel:${c.phone.replace(/\s/g, '')}`}
-          className="pressable flex items-center justify-center gap-3 py-5 rounded-2xl bg-green-500 text-white text-lg font-extrabold shadow-md"
-        >
-          📞 {c.phone}
-        </a>
+        <div className="flex flex-col gap-2">
+          <button
+            className="pressable flex items-center justify-center gap-3 py-5 rounded-2xl bg-green-500 text-white text-lg font-extrabold shadow-md"
+            onClick={() => onCallInitiated(c.phone)}
+          >
+            📞 {c.phone}
+          </button>
+          {c.phone2 && (
+            <button
+              className="pressable flex items-center justify-center gap-2 py-3.5 rounded-2xl font-semibold text-sm shadow-sm"
+              style={{ background: '#059669', color: '#fff' }}
+              onClick={() => onCallInitiated(c.phone2)}
+            >
+              📞 {c.phone2}
+              <span className="text-xs opacity-75 ml-1">2. Nr.</span>
+            </button>
+          )}
+        </div>
       )}
 
       {/* Kaufhistorie */}
@@ -247,12 +279,30 @@ export function CallModeScreen({ onBack }) {
   const [callbackAt, setCallbackAt] = useState('')
   const [interest, setInterest]   = useState('')
 
+  // Auto call popup
+  const [showAutoCallOverlay, setShowAutoCallOverlay] = useState(false)
+  const callWasInitiated = useRef(false)
+  const visHandlerRef    = useRef(null)
+  const { toast: callToast, show: showCallToast } = useToast()
+
+  // Swipe nav
+  const swipeStartX = useRef(0)
+  const swipeStartY = useRef(0)
+
   // Active contact resolution: main queue takes priority over manual queue
   const mainContact  = queue[index] ?? null
   const isManualMode = !mainContact && manualQueue.length > 0
   const contact      = mainContact ?? manualQueue[0] ?? null
 
   const cooldownMonths = cooldownContacts[0]?.cooldown_months ?? 12
+
+  useEffect(() => {
+    return () => {
+      if (visHandlerRef.current) {
+        document.removeEventListener('visibilitychange', visHandlerRef.current)
+      }
+    }
+  }, [])
 
   // ── Load all data on mount ───────────────────────────────────────────────────
   useEffect(() => {
@@ -333,6 +383,54 @@ export function CallModeScreen({ onBack }) {
       setIndex(i => i + 1)
     }
   }, [isManualMode, reloadSections])
+
+  const handlePrev = () => {
+    if (index > 0) setIndex(i => i - 1)
+  }
+
+  const handleNext = () => {
+    if (index < queue.length - 1) {
+      setIndex(i => i + 1)
+    } else {
+      showCallToast('Ende der Anrufliste')
+    }
+  }
+
+  const initiateCallFromQueue = (phoneNumber) => {
+    callWasInitiated.current = true
+    if (visHandlerRef.current) {
+      document.removeEventListener('visibilitychange', visHandlerRef.current)
+    }
+    const handler = () => {
+      if (document.visibilityState === 'visible' && callWasInitiated.current) {
+        callWasInitiated.current = false
+        document.removeEventListener('visibilitychange', handler)
+        setShowAutoCallOverlay(true)
+      }
+    }
+    visHandlerRef.current = handler
+    document.addEventListener('visibilitychange', handler)
+    window.location.href = `tel:${phoneNumber.replace(/\s/g, '')}`
+  }
+
+  const handleAutoOverlayClose = async () => {
+    setShowAutoCallOverlay(false)
+    await reloadSections()
+  }
+
+  const onCardTouchStart = (e) => {
+    swipeStartX.current = e.touches[0].clientX
+    swipeStartY.current = e.touches[0].clientY
+  }
+
+  const onCardTouchEnd = (e) => {
+    const dx = e.changedTouches[0].clientX - swipeStartX.current
+    const dy = e.changedTouches[0].clientY - swipeStartY.current
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 60) {
+      if (dx < 0) handleNext()
+      else handlePrev()
+    }
+  }
 
   const writeCallLog = async (result, noteText) => {
     await supabase.from('call_log').insert({
@@ -436,7 +534,18 @@ export function CallModeScreen({ onBack }) {
 
           {/* Active contact card OR done banner */}
           {contact ? (
-            <ActiveContactCard c={contact} purchases={purchases} callHistory={callHistory} />
+            <div onTouchStart={onCardTouchStart} onTouchEnd={onCardTouchEnd}>
+              <ActiveContactCard
+                c={contact}
+                purchases={purchases}
+                callHistory={callHistory}
+                index={index}
+                total={initialTotal}
+                onPrev={handlePrev}
+                onNext={handleNext}
+                onCallInitiated={initiateCallFromQueue}
+              />
+            </div>
           ) : (
             <div className="bg-white rounded-2xl p-5 shadow-sm text-center">
               {initialTotal === 0 ? (
@@ -673,6 +782,16 @@ export function CallModeScreen({ onBack }) {
           </div>
         </Modal>
       )}
+
+      {/* Auto call outcome popup — fires when user returns from phone call */}
+      {showAutoCallOverlay && contact && (
+        <CallOutcomeOverlay
+          contact={contact}
+          onClose={handleAutoOverlayClose}
+        />
+      )}
+
+      <Toast toast={callToast} />
     </div>
   )
 }

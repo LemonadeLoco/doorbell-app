@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { PRODUCTS } from '../lib/constants'
+import { ProductChips } from './TerminModal'
 
 export function ContactSheet({ mode, onSave, onClose, getPosition, initialAddress = '', initialApartment = '' }) {
   const isTermin        = mode === 'termin'
   const isWiedervorlage = mode === 'wiedervorlage'
-  const [form, setForm]       = useState({ name: '', phone: '', address: initialAddress, apartment: initialApartment, product: '', notes: '', appt_at: '', followup_at: '' })
+  const [form, setForm]       = useState({ name: '', phone: '', address: initialAddress, apartment: initialApartment, products: [], notes: '', appt_at: '', followup_at: '' })
   const [geoLoading, setGeoLoading] = useState(false)
   const sheetRef  = useRef(null)
   const startY    = useRef(0)
@@ -79,7 +79,7 @@ export function ContactSheet({ mode, onSave, onClose, getPosition, initialAddres
       phone:       form.phone.trim()     || null,
       address:     form.address.trim()   || null,
       apartment:   form.apartment.trim() || null,
-      product:     form.product          || null,
+      product:     form.products.length > 0 ? form.products.join(',') : null,
       notes:       form.notes.trim()     || null,
       appt_at:     isTermin && form.appt_at ? new Date(form.appt_at).toISOString() : null,
       followup_at: isWiedervorlage && form.followup_at ? new Date(form.followup_at).toISOString() : null,
@@ -148,14 +148,12 @@ export function ContactSheet({ mode, onSave, onClose, getPosition, initialAddres
           )}
 
           {!isWiedervorlage && (
-            <label className="block mb-3">
+            <div className="mb-3">
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Produkt</span>
-              <select className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-400 bg-white"
-                value={form.product} onChange={e => set('product', e.target.value)}>
-                <option value="">— wählen —</option>
-                {PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
-            </label>
+              <div className="mt-2">
+                <ProductChips selected={form.products} onChange={v => set('products', v)} />
+              </div>
+            </div>
           )}
 
           {isTermin && (

@@ -1,10 +1,11 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { StatusBadge, SourceBadge } from '../components/StatusBadge'
 import { STATUSES, PRODUCTS } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { Toast, useToast } from '../components/Toast'
 import { useCallAttempts } from '../hooks/useCallAttempts'
 import { CallOutcomeOverlay, RESULT_LABELS } from '../components/CallOutcomeOverlay'
+import { usePurchases } from '../hooks/usePurchases'
 
 const OUTCOME_ICONS  = { erreicht: '✓', nicht_erreicht: '○', mailbox: '📬' }
 const OUTCOME_LABELS = { erreicht: 'Erreicht', nicht_erreicht: 'Nicht erreicht', mailbox: 'Mailbox' }
@@ -96,6 +97,19 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
   const undoSnackTimer = useRef(null)
   const { toast, show }         = useToast()
   const { attempts, failCount, reload: reloadAttempts } = useCallAttempts(contact.id)
+  const { purchases, uploadPdf, openPdf } = usePurchases(contact.source === 'anruf' ? contact.id : null)
+  const [pdfUploading, setPdfUploading] = useState(null)
+  const [showPhoneSheet, setShowPhoneSheet] = useState(false)
+  const callWasInitiated = useRef(false)
+  const visHandlerRef    = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      if (visHandlerRef.current) {
+        document.removeEventListener('visibilitychange', visHandlerRef.current)
+      }
+    }
+  }, [])
 
   const update = async (patch) => {
     const { data } = await supabase.from('contacts').update(patch).eq('id', contact.id).select().single()
@@ -181,6 +195,23 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
     const { data } = await supabase.from('contacts').select('*').eq('id', contact.id).single()
     if (data) { setContact(data); setNotes(data.notes ?? '') }
     reloadAttempts()
+  }
+
+  const initiateCall = (phoneNumber) => {
+    callWasInitiated.current = true
+    if (visHandlerRef.current) {
+      document.removeEventListener('visibilitychange', visHandlerRef.current)
+    }
+    const handler = () => {
+      if (document.visibilityState === 'visible' && callWasInitiated.current) {
+        callWasInitiated.current = false
+        document.removeEventListener('visibilitychange', handler)
+        setShowCallOverlay(true)
+      }
+    }
+    visHandlerRef.current = handler
+    document.addEventListener('visibilitychange', handler)
+    window.location.href = `tel:${phoneNumber.replace(/\s/g, '')}`
   }
 
   const tel      = contact.phone?.replace(/\s/g, '')
@@ -297,9 +328,21 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
         {/* Call button + Anruf eintragen */}
         {tel && (
           <div className="flex flex-col gap-2">
-            <a href={`tel:${tel}`} className="pressable flex items-center justify-center gap-2 w-full py-4 rounded-2xl bg-green-500 text-white font-bold text-base shadow-sm">
+            <button
+              onClick={() => contact.phone2 ? setShowPhoneSheet(true) : initiateCall(contact.phone)}
+              className="pressable flex items-center justify-center gap-2 w-full py-4 rounded-2xl bg-green-500 text-white font-bold text-base shadow-sm"
+            >
               📞 Anrufen — {contact.phone}
-            </a>
+            </button>
+            {contact.phone2 && (
+              <button
+                onClick={() => initiateCall(contact.phone2)}
+                className="pressable flex items-center justify-center gap-2 w-full py-3.5 rounded-2xl font-semibold text-sm shadow-sm"
+                style={{ background: '#059669', color: '#fff' }}
+              >
+                📞 Anrufen (2. Nummer) — {contact.phone2}
+              </button>
+            )}
             <button
               onClick={() => setShowCallOverlay(true)}
               className="pressable flex items-center justify-center gap-2 w-full py-3 rounded-2xl bg-white text-gray-600 font-semibold text-sm shadow-sm border border-gray-200"
@@ -318,35 +361,71 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
           </div>
         )}
 
-        {/* Kaufhistorie for Bestandskunden */}
-        {isAnruf && (contact.kaufdatum || contact.kaufbetrag || contact.auftragsnummer) && (
+        {/* Kaufhistorie for Bestandskunden — dynamic from purchases table */}
+        {isAnruf && purchases.length > 0 && (
           <div className="bg-white rounded-2xl p-4 shadow-sm">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Kaufhistorie</p>
-            <div className="flex flex-col gap-2">
-              {contact.original_produkt && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Produkt</span>
-                  <span className="text-gray-800 font-semibold">{contact.original_produkt}</span>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+              Kaufhistorie {purchases.length > 1 && <span className="text-gray-300">({purchases.length} Käufe)</span>}
+            </p>
+            <div className="flex flex-col gap-4">
+              {purchases.map((p, idx) => (
+                <div key={p.id} className={idx > 0 ? 'pt-3 border-t border-gray-100' : ''}>
+                  {p.product_raw && (
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-gray-400">Produkt</span>
+                      <span className="text-gray-800 font-semibold text-right max-w-[60%]">{p.product_raw}</span>
+                    </div>
+                  )}
+                  {p.purchased_at && (
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-gray-400">Kaufdatum</span>
+                      <span className="text-gray-800 font-semibold">
+                        {new Date(p.purchased_at).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}
+                      </span>
+                    </div>
+                  )}
+                  {p.amount && (
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-gray-400">Kaufbetrag</span>
+                      <span className="text-gray-800 font-semibold">{fmt(p.amount)}</span>
+                    </div>
+                  )}
+                  {p.order_no && (
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-gray-400">Auftragsnr.</span>
+                      <span className="text-gray-800 font-semibold">{p.order_no}</span>
+                    </div>
+                  )}
+                  <div className="flex gap-2 mt-1">
+                    {p.pdf_url ? (
+                      <button
+                        onClick={() => openPdf(p.pdf_url)}
+                        className="flex-1 text-xs py-1.5 rounded-xl bg-blue-50 text-blue-600 font-semibold"
+                      >
+                        📄 Vertrag öffnen
+                      </button>
+                    ) : (
+                      <label className={`flex-1 text-xs py-1.5 rounded-xl text-center font-semibold cursor-pointer ${pdfUploading === p.id ? 'bg-gray-100 text-gray-400' : 'bg-gray-50 text-gray-500'}`}>
+                        {pdfUploading === p.id ? 'Lädt…' : '📎 PDF hochladen'}
+                        <input
+                          type="file"
+                          accept="application/pdf"
+                          className="hidden"
+                          disabled={pdfUploading === p.id}
+                          onChange={async e => {
+                            const file = e.target.files?.[0]
+                            if (!file) return
+                            setPdfUploading(p.id)
+                            try { await uploadPdf(p.id, p.order_no, file) }
+                            catch { show('Upload fehlgeschlagen') }
+                            finally { setPdfUploading(null) }
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
                 </div>
-              )}
-              {contact.kaufdatum && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Kaufdatum</span>
-                  <span className="text-gray-800 font-semibold">{new Date(contact.kaufdatum).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}</span>
-                </div>
-              )}
-              {contact.kaufbetrag && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Kaufbetrag</span>
-                  <span className="text-gray-800 font-semibold">{fmt(contact.kaufbetrag)}</span>
-                </div>
-              )}
-              {contact.auftragsnummer && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Auftragsnr.</span>
-                  <span className="text-gray-800 font-semibold">{contact.auftragsnummer}</span>
-                </div>
-              )}
+              ))}
             </div>
           </div>
         )}
@@ -482,6 +561,41 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
           {contact.do_not_return ? '⛔ Markierung entfernen' : '⛔ Nicht nochmal klingeln'}
         </button>
       </div>
+
+      {/* Phone selection sheet — shown when both phone and phone2 exist */}
+      {showPhoneSheet && (
+        <div className="fixed inset-0 z-50 flex items-end" onClick={() => setShowPhoneSheet(false)}>
+          <div
+            className="w-full bg-white rounded-t-2xl shadow-2xl px-5 pt-4"
+            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mb-4" />
+            <p className="text-sm font-bold text-gray-900 mb-3">Welche Nummer anrufen?</p>
+            <div className="flex flex-col gap-2">
+              <button
+                className="pressable w-full py-4 rounded-2xl bg-green-500 text-white font-bold text-sm"
+                onClick={() => { setShowPhoneSheet(false); initiateCall(contact.phone) }}
+              >
+                Privat: {contact.phone}
+              </button>
+              <button
+                className="pressable w-full py-4 rounded-2xl font-bold text-sm"
+                style={{ background: '#059669', color: '#fff' }}
+                onClick={() => { setShowPhoneSheet(false); initiateCall(contact.phone2) }}
+              >
+                Firma: {contact.phone2}
+              </button>
+              <button
+                className="pressable w-full py-3 text-sm text-gray-500 font-medium"
+                onClick={() => setShowPhoneSheet(false)}
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Status undo snackbar */}
       {undoSnack && (
