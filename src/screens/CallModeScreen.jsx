@@ -109,6 +109,22 @@ function ActiveContactCard({ c, purchases, callHistory, index, total, onPrev, on
           </p>
         )}
 
+        {c.email && (
+          <p className="text-sm text-gray-500 flex items-center gap-2 mb-2">
+            <span className="text-gray-400 flex-shrink-0">✉️</span>
+            <a href={`mailto:${c.email}`} className="underline truncate">{c.email}</a>
+          </p>
+        )}
+
+        {c.notes?.includes('Pruefen:') && (
+          <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-2">
+            <span className="text-amber-500 flex-shrink-0 mt-0.5">⚠️</span>
+            <p className="text-xs text-amber-700 leading-snug">
+              {c.notes.split('Pruefen:')[1]?.trim()}
+            </p>
+          </div>
+        )}
+
         {c.interest && (
           <div className="flex items-center gap-2 mt-1">
             <span className="text-gray-400 text-sm">⭐</span>
