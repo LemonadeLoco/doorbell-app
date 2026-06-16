@@ -1,3 +1,6 @@
+.env
+.env.*
+
 # Logs
 logs
 *.log
@@ -12,6 +15,10 @@ dist
 dist-ssr
 *.local
 .netlify_env
+
+# Customer data — never commit
+contracts/
+bestandskunden_extract.*
 
 # Editor directories and files
 .vscode/*
