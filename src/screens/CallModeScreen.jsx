@@ -83,8 +83,19 @@ function CollapsibleSection({ title, count, expanded, onToggle, accentColor = '#
   )
 }
 
+function openMaps(address) {
+  const q = encodeURIComponent(address)
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
+  window.open(
+    isIOS
+      ? `maps://maps.apple.com/?q=${q}`
+      : `https://www.google.com/maps/search/?api=1&query=${q}`,
+    '_blank'
+  )
+}
+
 // ─── Single card for active contact ──────────────────────────────────────────
-function ActiveContactCard({ c, purchases, callHistory, index, total, onPrev, onNext, onCallInitiated }) {
+function ActiveContactCard({ c, purchases, callHistory, onCallInitiated }) {
   return (
     <>
       {/* Identity */}
@@ -103,10 +114,17 @@ function ActiveContactCard({ c, purchases, callHistory, index, total, onPrev, on
         </div>
 
         {c.address && (
-          <p className="text-sm text-gray-600 flex items-start gap-2 mb-2">
+          <div className="text-sm text-gray-600 flex items-start gap-2 mb-2">
             <span className="text-gray-400 mt-0.5 flex-shrink-0">📍</span>
-            <span>{c.address}</span>
-          </p>
+            <span className="flex-1">{c.address}</span>
+            <button
+              className="pressable flex-shrink-0 text-blue-400 text-base leading-none"
+              onClick={() => openMaps(c.address)}
+              title="In Karte öffnen"
+            >
+              🗺️
+            </button>
+          </div>
         )}
 
         {c.email && (
@@ -149,24 +167,6 @@ function ActiveContactCard({ c, purchases, callHistory, index, total, onPrev, on
             )}
           </div>
         )}
-
-        {/* Next / Back navigation row */}
-        <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
-          <button
-            className="pressable text-sm text-gray-400 font-medium disabled:opacity-30"
-            disabled={index <= 0}
-            onClick={onPrev}
-          >
-            ← Zurück
-          </button>
-          <span className="text-xs text-gray-400">{index + 1} / {total}</span>
-          <button
-            className="pressable text-sm text-gray-400 font-medium"
-            onClick={onNext}
-          >
-            Weiter →
-          </button>
-        </div>
       </div>
 
       {/* Call button(s) */}
@@ -197,18 +197,25 @@ function ActiveContactCard({ c, purchases, callHistory, index, total, onPrev, on
           <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3">Kaufhistorie</p>
           <div className="flex flex-col divide-y divide-gray-50">
             {purchases.map(p => (
-              <div key={p.id} className="flex items-center justify-between py-2 first:pt-0 last:pb-0">
-                <span className="text-sm text-gray-700 font-medium flex-1 min-w-0 pr-3 truncate">
-                  {p.product || p.product_raw || '—'}
-                </span>
-                <div className="flex items-center gap-3 flex-shrink-0">
-                  {p.amount != null && (
-                    <span className="text-sm font-bold text-gray-700">
-                      {Number(p.amount).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
-                    </span>
-                  )}
-                  <span className="text-xs text-gray-400">{fmtMonthYear(p.purchased_at)}</span>
+              <div key={p.id} className="py-2 first:pt-0 last:pb-0">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-700 font-medium flex-1 min-w-0 pr-3 truncate">
+                    {p.product || p.product_raw || '—'}
+                  </span>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    {p.amount != null && (
+                      <span className="text-sm font-bold text-gray-700">
+                        {Number(p.amount).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-400">{fmtMonthYear(p.purchased_at)}</span>
+                  </div>
                 </div>
+                {p.lead_channel && (
+                  <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                    {p.lead_channel}
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -401,7 +408,7 @@ export function CallModeScreen({ onBack, isAdmin, salesmen, selectedSalesmanId, 
 
     supabase
       .from('purchases')
-      .select('id, product, product_raw, amount, purchased_at')
+      .select('id, product, product_raw, amount, purchased_at, lead_channel')
       .eq('contact_id', contact.id)
       .order('purchased_at', { ascending: false })
       .then(({ data }) => setPurchases(data ?? []))
@@ -556,16 +563,31 @@ export function CallModeScreen({ onBack, isAdmin, salesmen, selectedSalesmanId, 
               {isManualMode ? 'Manuell — Kürzlich gekauft' : 'Anruf-Modus'}
             </h1>
           </div>
-          {/* Progress — only for main queue */}
+          {/* Progress + nav — only for main queue */}
           {!isManualMode && initialTotal > 0 && (
-            <div className="flex flex-col items-end">
-              <span className="text-sm font-extrabold text-gray-700">{index + 1} / {initialTotal}</span>
-              <div className="mt-1 h-1.5 w-24 bg-gray-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-amber-400 rounded-full transition-all duration-300"
-                  style={{ width: `${Math.round((index / Math.max(initialTotal, 1)) * 100)}%` }}
-                />
+            <div className="flex items-center gap-1">
+              <button
+                className="pressable w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 text-xl disabled:opacity-30"
+                disabled={index <= 0}
+                onClick={handlePrev}
+              >
+                ‹
+              </button>
+              <div className="flex flex-col items-center min-w-[52px]">
+                <span className="text-sm font-extrabold text-gray-700">{index + 1} / {initialTotal}</span>
+                <div className="mt-1 h-1.5 w-12 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-amber-400 rounded-full transition-all duration-300"
+                    style={{ width: `${Math.round((index / Math.max(initialTotal, 1)) * 100)}%` }}
+                  />
+                </div>
               </div>
+              <button
+                className="pressable w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 text-xl"
+                onClick={handleNext}
+              >
+                ›
+              </button>
             </div>
           )}
         </div>
@@ -585,10 +607,6 @@ export function CallModeScreen({ onBack, isAdmin, salesmen, selectedSalesmanId, 
                 c={contact}
                 purchases={purchases}
                 callHistory={callHistory}
-                index={index}
-                total={initialTotal}
-                onPrev={handlePrev}
-                onNext={handleNext}
                 onCallInitiated={initiateCallFromQueue}
               />
             </div>

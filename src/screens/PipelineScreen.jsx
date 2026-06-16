@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useContacts } from '../hooks/useContacts'
 import { usePipelineGroups } from '../hooks/usePipelineGroups'
 import { StatusBadge, SourceBadge } from '../components/StatusBadge'
@@ -98,6 +98,24 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
   const salesmanFilter = isAdmin ? selectedSalesmanId : null
   const { contacts, loading, addContact } = useContacts(null, salesmanFilter)
 
+  const [bkPurchasesMap, setBkPurchasesMap] = useState({})
+  useEffect(() => {
+    const bkIds = contacts.filter(c => c.source === 'bestandskunde').map(c => c.id)
+    if (!bkIds.length) { setBkPurchasesMap({}); return }
+    supabase
+      .from('purchases')
+      .select('contact_id, product, product_raw, amount, purchased_at, lead_channel')
+      .in('contact_id', bkIds)
+      .then(({ data }) => {
+        const map = {}
+        ;(data ?? []).forEach(p => {
+          if (!map[p.contact_id]) map[p.contact_id] = []
+          map[p.contact_id].push(p)
+        })
+        setBkPurchasesMap(map)
+      })
+  }, [contacts]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const today    = todayStr()
   const tomorrow = tomorrowStr()
 
@@ -107,7 +125,7 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
       if (ct.status !== 'kein_int') {
         if (ct.status !== 'archiv') c.Alle++
         c[ct.status] = (c[ct.status] ?? 0) + 1
-        if (ct.source === 'anruf') c.bestandskunden++
+        if (ct.source === 'bestandskunde') c.bestandskunden++
       }
     })
     return c
@@ -116,7 +134,7 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
   const filtered = useMemo(() => {
     return contacts.filter(c => {
       let ok = true
-      if (filter === 'bestandskunden') ok = c.source === 'anruf'
+      if (filter === 'bestandskunden') ok = c.source === 'bestandskunde'
       else if (filter === 'archiv')    ok = c.status === 'archiv' || c.status === 'kein_int'
       else if (filter === 'Alle')      ok = c.status !== 'archiv' && c.status !== 'kein_int'
       else                             ok = c.status === filter
@@ -153,7 +171,9 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
     return colors[(name?.charCodeAt(0) ?? 0) % colors.length]
   }
 
-  const { urgent, active, archived } = usePipelineGroups(contacts)
+  const neuContacts = useMemo(() => contacts.filter(c => c.source !== 'bestandskunde'), [contacts])
+  const bkContactsSorted = useMemo(() => contacts.filter(c => c.source === 'bestandskunde' && c.status !== 'kein_int' && c.status !== 'archiv'), [contacts])
+  const { urgent, active, archived } = usePipelineGroups(neuContacts)
   const isSectioned = filter === 'Alle' && !search.trim()
   const isBK = filter === 'bestandskunden'
 
@@ -218,7 +238,7 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
 
       <div className="flex-1 px-4 py-3 flex flex-col gap-2">
         {/* Anruf-Modus entry */}
-        {onStartCallMode && (
+        {onStartCallMode && !isBK && (
           <button
             onClick={onStartCallMode}
             className="pressable flex items-center gap-3 bg-blue-500 text-white rounded-2xl px-4 py-3 shadow-sm mb-1"
@@ -235,7 +255,7 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
           <p className="text-center text-gray-400 mt-10 text-sm">Laden...</p>
         ) : isSectioned ? (
           <>
-            {urgent.length === 0 && active.length === 0 && archived.length === 0 ? (
+            {urgent.length === 0 && active.length === 0 && archived.length === 0 && bkContactsSorted.length === 0 ? (
               <div className="text-center mt-16">
                 <p className="text-4xl mb-3">📭</p>
                 <p className="text-gray-500 font-semibold text-sm">Keine Kontakte vorhanden</p>
@@ -243,37 +263,60 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
               </div>
             ) : (
               <>
-                {urgent.length > 0 && (
+                {/* ── Neukunden ─────────────────────────────── */}
+                {(urgent.length > 0 || active.length > 0 || archived.length > 0) && (
                   <>
-                    <SectionHeader title="Handlungsbedarf" count={urgent.length} color="#F59E0B" />
-                    {compactView
-                      ? urgent.map(c => <CompactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} isExpired={isExpired(c)} today={today} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="urgent" />)
-                      : urgent.map(c => <ContactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} showQuickDial={isBK} initials={initials} avatarColor={avatarColor} isExpired={isExpired(c)} today={today} tomorrow={tomorrow} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="urgent" />)
-                    }
-                  </>
-                )}
-                {active.length > 0 && (
-                  <>
-                    <SectionHeader title="In Bearbeitung" count={active.length} color="#3B82F6" />
-                    {compactView
-                      ? active.map(c => <CompactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} isExpired={isExpired(c)} today={today} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="active" />)
-                      : active.map(c => <ContactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} showQuickDial={isBK} initials={initials} avatarColor={avatarColor} isExpired={isExpired(c)} today={today} tomorrow={tomorrow} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="active" />)
-                    }
-                  </>
-                )}
-                {archived.length > 0 && (
-                  <>
-                    <button
-                      className="pressable flex items-center justify-between w-full px-3 py-2.5 mt-1 rounded-xl bg-gray-50 text-gray-400 text-xs font-semibold"
-                      onClick={() => setArchivExpanded(v => !v)}
-                    >
-                      <span>Kein Interesse / Archiv ({archived.length})</span>
-                      <span>{archivExpanded ? '▲' : '▼'}</span>
-                    </button>
-                    {archivExpanded && (compactView
-                      ? archived.map(c => <CompactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} isExpired={isExpired(c)} today={today} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="archived" />)
-                      : archived.map(c => <ContactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} showQuickDial={false} initials={initials} avatarColor={avatarColor} isExpired={isExpired(c)} today={today} tomorrow={tomorrow} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="archived" />)
+                    <SectionHeader title="Neukunden" count={urgent.length + active.length} color="#3B82F6" />
+                    {urgent.length > 0 && (
+                      <>
+                        <SectionHeader title="Handlungsbedarf" count={urgent.length} color="#F59E0B" />
+                        {compactView
+                          ? urgent.map(c => <CompactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} isExpired={isExpired(c)} today={today} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="urgent" />)
+                          : urgent.map(c => <ContactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} showQuickDial={false} initials={initials} avatarColor={avatarColor} isExpired={isExpired(c)} today={today} tomorrow={tomorrow} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="urgent" />)
+                        }
+                      </>
                     )}
+                    {active.length > 0 && (
+                      <>
+                        <SectionHeader title="In Bearbeitung" count={active.length} color="#3B82F6" />
+                        {compactView
+                          ? active.map(c => <CompactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} isExpired={isExpired(c)} today={today} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="active" />)
+                          : active.map(c => <ContactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} showQuickDial={false} initials={initials} avatarColor={avatarColor} isExpired={isExpired(c)} today={today} tomorrow={tomorrow} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="active" />)
+                        }
+                      </>
+                    )}
+                    {archived.length > 0 && (
+                      <>
+                        <button
+                          className="pressable flex items-center justify-between w-full px-3 py-2.5 mt-1 rounded-xl bg-gray-50 text-gray-400 text-xs font-semibold"
+                          onClick={() => setArchivExpanded(v => !v)}
+                        >
+                          <span>Kein Interesse / Archiv ({archived.length})</span>
+                          <span>{archivExpanded ? '▲' : '▼'}</span>
+                        </button>
+                        {archivExpanded && (compactView
+                          ? archived.map(c => <CompactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} isExpired={isExpired(c)} today={today} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="archived" />)
+                          : archived.map(c => <ContactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)} showQuickDial={false} initials={initials} avatarColor={avatarColor} isExpired={isExpired(c)} today={today} tomorrow={tomorrow} onCallLog={c.phone ? () => setCallOverlayContact(c) : null} sectionType="archived" />)
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+
+                {/* ── Bestandskunden ───────────────────────── */}
+                {bkContactsSorted.length > 0 && (
+                  <>
+                    <SectionHeader title="Bestandskunden" count={bkContactsSorted.length} color="#8B5CF6" />
+                    {bkContactsSorted.map(c => (
+                      <BkContactCard
+                        key={c.id}
+                        contact={c}
+                        purchases={bkPurchasesMap[c.id] ?? []}
+                        onSelect={() => onContactSelect(c)}
+                        initials={initials}
+                        avatarColor={avatarColor}
+                      />
+                    ))}
                   </>
                 )}
               </>
@@ -294,10 +337,15 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
               isExpired={isExpired(c)} today={today}
               onCallLog={c.phone ? () => setCallOverlayContact(c) : null} />
           ))
+        ) : isBK ? (
+          sorted.map(c => (
+            <BkContactCard key={c.id} contact={c} purchases={bkPurchasesMap[c.id] ?? []}
+              onSelect={() => onContactSelect(c)} initials={initials} avatarColor={avatarColor} />
+          ))
         ) : (
           sorted.map(c => (
             <ContactCard key={c.id} contact={c} onSelect={() => onContactSelect(c)}
-              showQuickDial={isBK} initials={initials} avatarColor={avatarColor}
+              showQuickDial={false} initials={initials} avatarColor={avatarColor}
               isExpired={isExpired(c)} today={today} tomorrow={tomorrow}
               onCallLog={c.phone ? () => setCallOverlayContact(c) : null} />
           ))
@@ -585,6 +633,59 @@ function ContactCard({ contact: c, onSelect, showQuickDial, initials, avatarColo
         )}
       </div>
     </div>
+  )
+}
+
+function BkContactCard({ contact: c, purchases, onSelect, initials, avatarColor }) {
+  const totalAmt = purchases.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+  const lastPurchase = purchases[0]
+  const channels = [...new Set(purchases.map(p => p.lead_channel).filter(Boolean))]
+
+  return (
+    <button
+      className="pressable bg-white rounded-2xl p-4 shadow-sm text-left w-full"
+      style={{ borderLeft: '3px solid #8B5CF6' }}
+      onClick={onSelect}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+          style={{ background: avatarColor(c.name) }}
+        >
+          {initials(c.name)}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-gray-900 text-sm">{c.name}</p>
+          {(lastPurchase || c.product) && (
+            <p className="text-xs text-gray-500 mt-0.5 truncate">
+              {lastPurchase?.product || lastPurchase?.product_raw || c.product || '—'}
+            </p>
+          )}
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {lastPurchase?.purchased_at && (
+              <span className="text-xs text-gray-400">
+                {new Date(lastPurchase.purchased_at).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}
+              </span>
+            )}
+            {totalAmt > 0 && (
+              <span className="text-xs font-bold text-gray-700">
+                {totalAmt.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+              </span>
+            )}
+          </div>
+          {channels.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {channels.map(ch => (
+                <span key={ch} className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 font-medium">
+                  {ch}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <span className="text-gray-300 text-base flex-shrink-0">›</span>
+      </div>
+    </button>
   )
 }
 
