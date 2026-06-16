@@ -237,8 +237,8 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
       </div>
 
       <div className="flex-1 px-4 py-3 flex flex-col gap-2">
-        {/* Anruf-Modus entry */}
-        {onStartCallMode && !isBK && (
+        {/* Anruf-Modus entry — only in Anrufen + Bestandskunden tabs */}
+        {onStartCallMode && (filter === 'anrufen' || filter === 'bestandskunden') && (
           <button
             onClick={onStartCallMode}
             className="pressable flex items-center gap-3 bg-blue-500 text-white rounded-2xl px-4 py-3 shadow-sm mb-1"
@@ -609,8 +609,24 @@ function ContactCard({ contact: c, onSelect, showQuickDial, initials, avatarColo
             <span className="text-gray-300 text-base">›</span>
           </div>
         </button>
-        {c.phone && (
-          <div className="flex gap-2 mt-3">
+
+        {/* Address with maps button */}
+        {c.address && (
+          <div className="flex items-center gap-2 mt-2 px-0.5">
+            <span className="text-gray-400 text-xs flex-shrink-0">📍</span>
+            <span className="text-xs text-gray-500 flex-1 truncate">{c.address}</span>
+            <button
+              className="pressable flex-shrink-0 text-blue-400 text-sm leading-none"
+              onClick={e => { e.stopPropagation(); openMaps(c.address) }}
+              title="In Karte öffnen"
+            >
+              🗺️
+            </button>
+          </div>
+        )}
+
+        {(showQuickDial || onCallLog) && c.phone && (
+          <div className="flex gap-2 mt-2">
             {showQuickDial && (
               <a
                 href={`tel:${c.phone.replace(/\s/g,'')}`}
@@ -636,56 +652,112 @@ function ContactCard({ contact: c, onSelect, showQuickDial, initials, avatarColo
   )
 }
 
+function openMaps(address) {
+  const q = encodeURIComponent(address)
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
+  window.open(
+    isIOS
+      ? `maps://maps.apple.com/?q=${q}`
+      : `https://www.google.com/maps/search/?api=1&query=${q}`,
+    '_blank'
+  )
+}
+
 function BkContactCard({ contact: c, purchases, onSelect, initials, avatarColor }) {
   const totalAmt = purchases.reduce((s, p) => s + (Number(p.amount) || 0), 0)
-  const lastPurchase = purchases[0]
   const channels = [...new Set(purchases.map(p => p.lead_channel).filter(Boolean))]
+  const products = [...new Set(purchases.map(p => p.product || p.product_raw).filter(Boolean))]
+  const lastPurchase = purchases[0]
 
   return (
-    <button
-      className="pressable bg-white rounded-2xl p-4 shadow-sm text-left w-full"
-      style={{ borderLeft: '3px solid #8B5CF6' }}
-      onClick={onSelect}
-    >
-      <div className="flex items-start gap-3">
-        <div
-          className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
-          style={{ background: avatarColor(c.name) }}
-        >
-          {initials(c.name)}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-bold text-gray-900 text-sm">{c.name}</p>
-          {(lastPurchase || c.product) && (
-            <p className="text-xs text-gray-500 mt-0.5 truncate">
-              {lastPurchase?.product || lastPurchase?.product_raw || c.product || '—'}
-            </p>
-          )}
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            {lastPurchase?.purchased_at && (
-              <span className="text-xs text-gray-400">
-                {new Date(lastPurchase.purchased_at).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}
-              </span>
+    <div className="bg-white rounded-2xl shadow-sm overflow-hidden" style={{ borderLeft: '3px solid #8B5CF6' }}>
+
+      {/* Top row — tappable to detail */}
+      <button className="pressable w-full text-left px-4 pt-4 pb-3" onClick={onSelect}>
+        <div className="flex items-start gap-3">
+          <div
+            className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+            style={{ background: avatarColor(c.name) }}
+          >
+            {initials(c.name)}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-gray-900 text-sm">{c.name}</p>
+            {products.length > 0 && (
+              <p className="text-xs text-gray-500 mt-0.5">{products.join(' · ')}</p>
             )}
-            {totalAmt > 0 && (
-              <span className="text-xs font-bold text-gray-700">
-                {totalAmt.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
-              </span>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {lastPurchase?.purchased_at && (
+                <span className="text-xs text-gray-400">
+                  {new Date(lastPurchase.purchased_at).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}
+                </span>
+              )}
+              {totalAmt > 0 && (
+                <span className="text-xs font-extrabold text-purple-600">
+                  {totalAmt.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+                </span>
+              )}
+            </div>
+            {channels.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {channels.map(ch => (
+                  <span key={ch} className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 font-medium">{ch}</span>
+                ))}
+              </div>
             )}
           </div>
-          {channels.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {channels.map(ch => (
-                <span key={ch} className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 font-medium">
-                  {ch}
-                </span>
-              ))}
-            </div>
-          )}
+          <span className="text-gray-300 text-base flex-shrink-0">›</span>
         </div>
-        <span className="text-gray-300 text-base flex-shrink-0">›</span>
+      </button>
+
+      {/* Address + phone row */}
+      <div className="px-4 pb-4 flex flex-col gap-2 border-t border-gray-50 pt-3">
+        {c.address && (
+          <div className="flex items-center gap-2">
+            <span className="text-gray-400 text-xs flex-shrink-0">📍</span>
+            <span className="text-xs text-gray-600 flex-1">{c.address}</span>
+            <button
+              className="pressable flex-shrink-0 text-blue-400 text-base leading-none"
+              onClick={e => { e.stopPropagation(); openMaps(c.address) }}
+              title="In Karte öffnen"
+            >
+              🗺️
+            </button>
+          </div>
+        )}
+        {(c.phone || c.phone2) && (
+          <div className="flex gap-2">
+            {c.phone && (
+              <a
+                href={`tel:${c.phone.replace(/\s/g, '')}`}
+                className="pressable flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-green-50 text-green-700 text-xs font-semibold"
+                onClick={e => e.stopPropagation()}
+              >
+                📞 {c.phone}
+              </a>
+            )}
+            {c.phone2 && (
+              <a
+                href={`tel:${c.phone2.replace(/\s/g, '')}`}
+                className="pressable flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-gray-50 text-gray-600 text-xs font-semibold"
+                onClick={e => e.stopPropagation()}
+              >
+                📞 2. Nr.
+              </a>
+            )}
+          </div>
+        )}
+        {c.notes && !c.notes.startsWith('Pruefen:') && (
+          <p className="text-xs text-gray-400 leading-snug line-clamp-2">{c.notes}</p>
+        )}
+        {c.notes?.includes('Pruefen:') && (
+          <div className="flex items-start gap-2 bg-amber-50 rounded-xl px-3 py-2">
+            <span className="text-amber-500 flex-shrink-0">⚠️</span>
+            <p className="text-xs text-amber-700 leading-snug">{c.notes.split('Pruefen:')[1]?.trim()}</p>
+          </div>
+        )}
       </div>
-    </button>
+    </div>
   )
 }
 
