@@ -133,6 +133,12 @@ function ActiveContactCard({ c, purchases, callHistory, onCallInitiated }) {
             <a href={`mailto:${c.email}`} className="underline truncate">{c.email}</a>
           </p>
         )}
+        {c.birthdate && (
+          <p className="text-sm text-gray-500 flex items-center gap-2 mb-2">
+            <span className="text-gray-400 flex-shrink-0">🎂</span>
+            <span>{new Date(c.birthdate).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+          </p>
+        )}
 
         {c.notes?.includes('Pruefen:') && (
           <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-2">
@@ -203,14 +209,24 @@ function ActiveContactCard({ c, purchases, callHistory, onCallInitiated }) {
                     {p.product || p.product_raw || '—'}
                   </span>
                   <div className="flex items-center gap-3 flex-shrink-0">
-                    {p.amount != null && (
-                      <span className="text-sm font-bold text-gray-700">
-                        {Number(p.amount).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
-                      </span>
+                    {(p.gross_amount != null || p.amount != null) && (
+                      <div className="flex flex-col items-end">
+                        <span className="text-sm font-bold text-gray-700">
+                          {Number(p.gross_amount ?? p.amount).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+                        </span>
+                        {p.gross_amount && p.amount && (
+                          <span className="text-xs text-gray-400">
+                            {Number(p.amount).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })} Netto
+                          </span>
+                        )}
+                      </div>
                     )}
                     <span className="text-xs text-gray-400">{fmtMonthYear(p.purchased_at)}</span>
                   </div>
                 </div>
+                {p.order_no && (
+                  <p className="text-xs text-gray-400 mt-0.5">Auftrag: {p.order_no}</p>
+                )}
                 {p.lead_channel && (
                   <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
                     {p.lead_channel}
@@ -219,11 +235,12 @@ function ActiveContactCard({ c, purchases, callHistory, onCallInitiated }) {
               </div>
             ))}
           </div>
-          {c.total_purchased != null && purchases.length > 1 && (
+          {purchases.length > 1 && (
             <div className="mt-3 pt-3 border-t border-gray-200 flex justify-between">
-              <span className="text-sm text-gray-400 font-medium">Gesamt</span>
-              <span className="text-sm font-extrabold text-gray-700">
-                {Number(c.total_purchased).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+              <span className="text-sm text-gray-400 font-medium">Gesamtumsatz</span>
+              <span className="text-sm font-extrabold text-purple-600">
+                {purchases.reduce((s, p) => s + (Number(p.gross_amount ?? p.amount) || 0), 0)
+                  .toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
               </span>
             </div>
           )}

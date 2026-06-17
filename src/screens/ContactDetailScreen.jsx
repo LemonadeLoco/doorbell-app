@@ -97,7 +97,8 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
   const undoSnackTimer = useRef(null)
   const { toast, show }         = useToast()
   const { attempts, failCount, reload: reloadAttempts } = useCallAttempts(contact.id)
-  const { purchases, uploadPdf, openPdf } = usePurchases(contact.source === 'anruf' ? contact.id : null)
+  const isBk = contact.source === 'anruf' || contact.source === 'bestandskunde'
+  const { purchases, uploadPdf, openPdf } = usePurchases(isBk ? contact.id : null)
   const [pdfUploading, setPdfUploading] = useState(null)
   const [showPhoneSheet, setShowPhoneSheet] = useState(false)
   const callWasInitiated = useRef(false)
@@ -215,7 +216,7 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
   }
 
   const tel      = contact.phone?.replace(/\s/g, '')
-  const isAnruf  = contact.source === 'anruf'
+  const isAnruf  = isBk
   const isTermin = contact.status === 'termin'
   const fmt = (n) => n ? '€' + parseFloat(n).toLocaleString('de-DE') : null
 
@@ -240,16 +241,25 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
           ← Pipeline
         </button>
         <div className="flex items-start justify-between">
-          <div>
+          <div className="flex-1 min-w-0 pr-3">
             <h1 className="text-xl font-extrabold text-gray-900">{contact.name}</h1>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <SourceBadge source={contact.source} />
               <StatusBadge status={contact.status} />
+              {isAnruf && (
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Hausbesitzer</span>
+              )}
               {contact.do_not_return && (
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600">⛔ Nicht klingeln</span>
               )}
             </div>
           </div>
+          {isAnruf && (
+            <div className="text-center bg-gray-50 rounded-xl px-3 py-2 flex-shrink-0">
+              <p className="text-lg font-extrabold text-gray-700">{attempts.length}</p>
+              <p className="text-xs text-gray-400">Anrufe</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -352,6 +362,26 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
           </div>
         )}
 
+        {/* Quick-glance info for Bestandskunden */}
+        {isAnruf && (contact.email || contact.birthdate) && (
+          <div className="bg-white rounded-2xl p-4 shadow-sm flex flex-col gap-2">
+            {contact.email && (
+              <div className="flex items-center gap-3">
+                <span className="text-gray-400 flex-shrink-0">✉️</span>
+                <a href={`mailto:${contact.email}`} className="text-sm text-blue-600 underline truncate flex-1">{contact.email}</a>
+              </div>
+            )}
+            {contact.birthdate && (
+              <div className="flex items-center gap-3">
+                <span className="text-gray-400 flex-shrink-0">🎂</span>
+                <span className="text-sm text-gray-700">
+                  {new Date(contact.birthdate).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Upsell tip for Bestandskunden */}
         {isAnruf && upsells.length > 0 && (
           <div className="bg-amber-50 rounded-2xl px-4 py-3">
@@ -384,16 +414,30 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
                       </span>
                     </div>
                   )}
-                  {p.amount && (
+                  {(p.amount || p.gross_amount) && (
                     <div className="flex justify-between text-sm mb-1">
                       <span className="text-gray-400">Kaufbetrag</span>
-                      <span className="text-gray-800 font-semibold">{fmt(p.amount)}</span>
+                      <div className="flex flex-col items-end gap-0.5">
+                        <span className="text-gray-800 font-semibold">
+                          {fmt(p.gross_amount ?? p.amount)}
+                          {p.gross_amount && <span className="text-gray-400 font-normal text-xs ml-1">Brutto</span>}
+                        </span>
+                        {p.gross_amount && p.amount && (
+                          <span className="text-gray-400 text-xs">{fmt(p.amount)} Netto</span>
+                        )}
+                      </div>
                     </div>
                   )}
                   {p.order_no && (
-                    <div className="flex justify-between text-sm mb-2">
+                    <div className="flex justify-between text-sm mb-1">
                       <span className="text-gray-400">Auftragsnr.</span>
                       <span className="text-gray-800 font-semibold">{p.order_no}</span>
+                    </div>
+                  )}
+                  {p.lead_channel && (
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-gray-400">Quelle</span>
+                      <span className="inline-block text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 font-medium">{p.lead_channel}</span>
                     </div>
                   )}
                   <div className="flex gap-2 mt-1">
@@ -427,6 +471,15 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
                 </div>
               ))}
             </div>
+            {purchases.length > 1 && (
+              <div className="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center">
+                <span className="text-sm text-gray-400 font-medium">Gesamtumsatz</span>
+                <span className="text-sm font-extrabold text-purple-600">
+                  {purchases.reduce((s, p) => s + (Number(p.gross_amount ?? p.amount) || 0), 0)
+                    .toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -443,6 +496,30 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
             type="tel"
             onSave={async v => { await update({ phone: v }); show('Telefon gespeichert') }}
           />
+          {contact.phone2 && (
+            <EditRow
+              label="Telefon 2"
+              value={contact.phone2}
+              type="tel"
+              onSave={async v => { await update({ phone2: v }); show('Telefon 2 gespeichert') }}
+            />
+          )}
+          <EditRow
+            label="E-Mail"
+            value={contact.email}
+            type="email"
+            onSave={async v => { await update({ email: v }); show('E-Mail gespeichert') }}
+          />
+          {isAnruf && (
+            <EditRow
+              label="Geburtsdatum"
+              value={contact.birthdate ? new Date(contact.birthdate).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' }) : null}
+              onSave={async v => {
+                const parsed = v ? new Date(v.split('.').reverse().join('-')).toISOString().split('T')[0] : null
+                await update({ birthdate: parsed }); show('Geburtsdatum gespeichert')
+              }}
+            />
+          )}
           <EditRow
             label="Produkt"
             value={contact.product}
@@ -452,7 +529,7 @@ export function ContactDetailScreen({ contact: initial, onBack }) {
           <div className="flex justify-between text-sm gap-4">
             <span className="text-gray-400 font-medium flex-shrink-0">Quelle</span>
             <span className="text-gray-800 font-semibold text-right">
-              {contact.source === 'tür' ? 'Haustür-Kontakt' : contact.source === 'anruf' ? 'Bestandskunde' : null}
+              {contact.source === 'tür' ? 'Haustür-Kontakt' : contact.source === 'anruf' ? 'Bestandskunde' : contact.source === 'bestandskunde' ? 'Bestandskunde' : contact.source}
             </span>
           </div>
           <div className="flex justify-between text-sm gap-4">

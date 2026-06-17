@@ -664,7 +664,7 @@ function openMaps(address) {
 }
 
 function BkContactCard({ contact: c, purchases, onSelect, initials, avatarColor }) {
-  const totalAmt = purchases.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+  const totalAmt = purchases.reduce((s, p) => s + (Number(p.gross_amount ?? p.amount) || 0), 0)
   const channels = [...new Set(purchases.map(p => p.lead_channel).filter(Boolean))]
   const products = [...new Set(purchases.map(p => p.product || p.product_raw).filter(Boolean))]
   const lastPurchase = purchases[0]
@@ -745,6 +745,18 @@ function BkContactCard({ contact: c, purchases, onSelect, initials, avatarColor 
                 📞 2. Nr.
               </a>
             )}
+          </div>
+        )}
+        {c.email && (
+          <div className="flex items-center gap-2">
+            <span className="text-gray-400 text-xs flex-shrink-0">✉️</span>
+            <a
+              href={`mailto:${c.email}`}
+              className="text-xs text-blue-500 truncate flex-1"
+              onClick={e => e.stopPropagation()}
+            >
+              {c.email}
+            </a>
           </div>
         )}
         {c.notes && !c.notes.startsWith('Pruefen:') && (
