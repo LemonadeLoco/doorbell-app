@@ -1,13 +1,14 @@
 {
   "name": "Doorbell",
   "short_name": "Doorbell",
-  "start_url": "/",
+  "start_url": "/doorbell-app/",
+  "scope": "/doorbell-app/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#F59E0B",
   "orientation": "portrait",
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
   ]
 }
