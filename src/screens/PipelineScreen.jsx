@@ -6,6 +6,7 @@ import { PRODUCTS, formatDateSmart } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { BottomSheet } from '../components/BottomSheet'
 import { CallOutcomeOverlay } from '../components/CallOutcomeOverlay'
+import { CallHistoryPanel } from '../components/CallHistoryPanel'
 
 const FILTERS = [
   { id: 'Alle',           label: 'Alle' },
@@ -93,6 +94,7 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
   const [intentStatus, setIntentStatus] = useState('anrufen')
   const [archivExpanded, setArchivExpanded] = useState(false)
   const [callOverlayContact, setCallOverlayContact] = useState(null)
+  const [showCallHistory, setShowCallHistory] = useState(false)
 
   // When admin, filter contacts by selectedSalesmanId; regular users let RLS handle it
   const salesmanFilter = isAdmin ? selectedSalesmanId : null
@@ -188,6 +190,13 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-xl font-extrabold text-gray-900">Pipeline</h1>
           <div className="flex items-center gap-2">
+            <button
+              className="pressable w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 text-sm"
+              onClick={() => setShowCallHistory(true)}
+              title="Anrufhistorie"
+            >
+              📋
+            </button>
             <button
               className="pressable w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 text-sm"
               onClick={() => setCompactView(v => !v)}
@@ -431,6 +440,15 @@ export function PipelineScreen({ onContactSelect, onAddBestandskunde, onStartCal
         <CallOutcomeOverlay
           contact={callOverlayContact}
           onClose={() => setCallOverlayContact(null)}
+        />
+      )}
+      {showCallHistory && (
+        <CallHistoryPanel
+          onClose={() => setShowCallHistory(false)}
+          onContactClick={(contact) => {
+            setShowCallHistory(false)
+            onContactSelect(contact)
+          }}
         />
       )}
     </div>
